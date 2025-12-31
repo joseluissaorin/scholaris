@@ -105,3 +105,9 @@ target/
 
 # Cython debug symbols
 cython_debug/
+
+# Documentation drafts and backups
+*_PROPOSAL.md
+*_IMPROVEMENT*.md
+*.backup
+*.bak
