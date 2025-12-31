@@ -77,9 +77,9 @@ result = orchestrator.insert_citations(request)
 **How It Works:**
 1. **Page Detection** (5-strategy cascade):
    - Footer/header parsing
-   - DOI → Crossref lookup
    - BibTeX validation
-   - OCR vision (Mistral Pixtral)
+   - DOI → Crossref lookup
+   - Vision OCR (Gemini Flash Lite / Mistral Pixtral)
    - PDF fallback
 
 2. **AI Citation Matching** (Hybrid Mode):
@@ -253,17 +253,17 @@ orchestrator = CitationOrchestrator(
     gemini_api_key="...",
     pdf_threshold=50,          # Switch to RAG at 50+ papers
     use_rag_mode=True,         # Enable RAG for large bibliographies
-    crossref_email="...",      # Optional: better page detection
-    mistral_api_key="..."      # Optional: OCR for scanned PDFs
+    crossref_email="...",      # Optional: better page detection via Crossref
+    mistral_api_key="..."      # Optional: Mistral OCR fallback (uses Gemini by default)
 )
 ```
 
 **Parameters:**
-- `gemini_api_key`: Google Gemini API key (required)
+- `gemini_api_key`: Google Gemini API key (required - also used for vision OCR)
 - `pdf_threshold`: Number of papers to trigger RAG mode (default: 50)
 - `use_rag_mode`: Enable hybrid Full Context/RAG mode (default: True)
-- `crossref_email`: Email for Crossref API polite pool (optional)
-- `mistral_api_key`: Mistral API key for OCR (optional)
+- `crossref_email`: Email for Crossref API polite pool (optional, improves page detection)
+- `mistral_api_key`: Mistral API key for OCR fallback (optional, Gemini used by default)
 
 | Method | Description | Returns |
 |--------|-------------|---------|
@@ -377,9 +377,9 @@ print(f"Citations: {len(result.citations)}")
 
 Create `.env` file:
 ```bash
-GEMINI_API_KEY=your_key_here
-CROSSREF_EMAIL=your@email.com  # Optional: better page detection
-MISTRAL_API_KEY=your_key        # Optional: OCR for scanned PDFs
+GEMINI_API_KEY=your_key_here       # Required (citation matching + vision OCR)
+CROSSREF_EMAIL=your@email.com      # Optional: better page detection via Crossref
+MISTRAL_API_KEY=your_key           # Optional: OCR fallback (Gemini used by default)
 ```
 
 ### Advanced Config

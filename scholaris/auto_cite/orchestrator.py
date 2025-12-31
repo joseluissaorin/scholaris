@@ -71,6 +71,7 @@ class CitationOrchestrator:
         page_offset_detector = PageOffsetDetector(
             crossref_email=crossref_email,
             mistral_api_key=mistral_api_key,
+            gemini_api_key=gemini_api_key,
         )
         self.pdf_processor = PDFProcessor(page_offset_detector=page_offset_detector)
 

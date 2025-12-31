@@ -20,8 +20,9 @@ beautifulsoup4>=4.11.0
 # Auto-citation system dependencies
 PyMuPDF>=1.23.0  # PDF text extraction (primary)
 pdfplumber>=0.10.0  # PDF text extraction (fallback for complex layouts)
+Pillow>=10.0.0  # Image processing for vision OCR
 chromadb>=0.4.0  # Vector database for RAG
-mistralai>=0.0.11  # Mistral Pixtral for OCR (optional)
+mistralai>=0.0.11  # Mistral Pixtral for OCR (optional fallback)
 
 # Optional dependencies
 # Uncomment if you want to use pdf2bib for BibTeX extraction

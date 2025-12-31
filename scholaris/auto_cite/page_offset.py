@@ -6,18 +6,28 @@ PDF page numbers and journal page numbers.
 Strategy Priority (from fastest/most reliable to slowest/least reliable):
 1. Footer/Header Parsing - Regex patterns on first/last pages (0.9 confidence)
 2. BibTeX Page Range Validation - Validate against pages field (0.7 confidence)
-3. Vision-Based Detection - Mistral Pixtral OCR (0.85 confidence)
-4. DOI Crossref Lookup - Query Crossref API (0.95 confidence)
+3. DOI Crossref Lookup - Query Crossref API (0.95 confidence)
+4. Vision-Based Detection - Gemini Flash Lite or Mistral Pixtral OCR (0.85 confidence)
 5. Assume PDF Pagination - Fallback for preprints (0.2-0.5 confidence)
 """
 
 import re
 import logging
 import requests
+import io
+import base64
 from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
 
 import fitz  # PyMuPDF
+from PIL import Image
+
+try:
+    import google.generativeai as genai
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
+    genai = None
 
 from .models import PageOffsetResult, PageDetectionStrategy
 
@@ -36,6 +46,7 @@ class PageOffsetDetector:
         min_confidence: float = 0.7,
         crossref_email: Optional[str] = None,
         mistral_api_key: Optional[str] = None,
+        gemini_api_key: Optional[str] = None,
     ):
         """Initialize page offset detector.
 
@@ -43,10 +54,12 @@ class PageOffsetDetector:
             min_confidence: Minimum confidence threshold (default: 0.7)
             crossref_email: Email for Crossref API (polite pool)
             mistral_api_key: API key for Mistral Pixtral (OCR fallback)
+            gemini_api_key: API key for Gemini (primary vision OCR)
         """
         self.min_confidence = min_confidence
         self.crossref_email = crossref_email
         self.mistral_api_key = mistral_api_key
+        self.gemini_api_key = gemini_api_key
 
         # Compile regex patterns for footer/header parsing
         self._compile_page_patterns()
@@ -100,8 +113,8 @@ class PageOffsetDetector:
                 logger.info(f"✓ Strategy 3 (Crossref): {result}")
                 return result
 
-        # Strategy 4: Vision-Based Detection (Mistral Pixtral)
-        if self.mistral_api_key:
+        # Strategy 4: Vision-Based Detection (Gemini or Mistral Pixtral)
+        if self.gemini_api_key or self.mistral_api_key:
             result = self._try_vision_ocr(pdf_path, bib_entry)
             if result and result.is_reliable:
                 logger.info(f"✓ Strategy 4 (Vision OCR): {result}")
@@ -473,10 +486,11 @@ class PageOffsetDetector:
         pdf_path: str,
         bib_entry: Dict[str, Any],
     ) -> Optional[PageOffsetResult]:
-        """Try to detect offset using Mistral Pixtral vision model.
+        """Try to detect offset using vision-based OCR.
 
         This strategy uses OCR on the first page for complex layouts where
-        text extraction fails or is unreliable.
+        text extraction fails or is unreliable. Tries Gemini Flash Lite first,
+        then falls back to Mistral Pixtral if available.
 
         Args:
             pdf_path: Path to PDF file
@@ -485,15 +499,239 @@ class PageOffsetDetector:
         Returns:
             PageOffsetResult if successful, None otherwise
         """
-        # TODO: Implement Mistral Pixtral OCR
-        # This requires:
-        # 1. Convert first PDF page to image
-        # 2. Send to Mistral Pixtral API
-        # 3. Extract page number from OCR response
-        # 4. Calculate offset
+        logger.debug(f"Attempting vision OCR for {Path(pdf_path).name}")
 
-        logger.debug("Vision OCR strategy not yet implemented")
+        # Step 1: Convert first PDF page to image
+        try:
+            image = self._pdf_page_to_image(pdf_path, page_num=0)
+            if not image:
+                logger.warning("Failed to convert PDF page to image")
+                return None
+        except Exception as e:
+            logger.error(f"Error converting PDF to image: {e}")
+            return None
+
+        # Step 2: Try Gemini Flash Lite first (preferred)
+        if self.gemini_api_key and GENAI_AVAILABLE:
+            try:
+                page_number = self._gemini_ocr(image)
+                if page_number:
+                    logger.debug(f"Gemini OCR detected page number: {page_number}")
+                    offset = page_number - 1  # First PDF page is page 1
+
+                    # Validate with BibTeX if available
+                    is_valid = self._validate_offset_with_bibtex(
+                        pdf_path, offset, bib_entry
+                    )
+
+                    return PageOffsetResult(
+                        offset=offset,
+                        confidence=0.85 if is_valid else 0.75,
+                        strategy_used=PageDetectionStrategy.VISION_OCR,
+                        uses_pdf_pagination=False,
+                        metadata={
+                            'detected_page': page_number,
+                            'ocr_engine': 'gemini-flash-lite',
+                            'bibtex_validated': is_valid,
+                        }
+                    )
+            except Exception as e:
+                logger.warning(f"Gemini OCR failed: {e}, trying Mistral...")
+
+        # Step 3: Fall back to Mistral Pixtral if available
+        if self.mistral_api_key:
+            try:
+                page_number = self._mistral_ocr(image)
+                if page_number:
+                    logger.debug(f"Mistral OCR detected page number: {page_number}")
+                    offset = page_number - 1
+
+                    is_valid = self._validate_offset_with_bibtex(
+                        pdf_path, offset, bib_entry
+                    )
+
+                    return PageOffsetResult(
+                        offset=offset,
+                        confidence=0.85 if is_valid else 0.75,
+                        strategy_used=PageDetectionStrategy.VISION_OCR,
+                        uses_pdf_pagination=False,
+                        metadata={
+                            'detected_page': page_number,
+                            'ocr_engine': 'mistral-pixtral',
+                            'bibtex_validated': is_valid,
+                        }
+                    )
+            except Exception as e:
+                logger.warning(f"Mistral OCR failed: {e}")
+
+        logger.debug("Vision OCR failed to detect page number")
         return None
+
+    def _pdf_page_to_image(self, pdf_path: str, page_num: int = 0) -> Optional[Image.Image]:
+        """Convert a PDF page to PIL Image.
+
+        Args:
+            pdf_path: Path to PDF file
+            page_num: Page number to convert (0-indexed)
+
+        Returns:
+            PIL Image or None if conversion fails
+        """
+        try:
+            doc = fitz.open(pdf_path)
+            if page_num >= len(doc):
+                logger.warning(f"Page {page_num} does not exist in PDF")
+                return None
+
+            page = doc[page_num]
+
+            # Render page to image at 150 DPI (good balance of quality and size)
+            pix = page.get_pixmap(matrix=fitz.Matrix(150/72, 150/72))
+
+            # Convert to PIL Image
+            img_data = pix.tobytes("png")
+            image = Image.open(io.BytesIO(img_data))
+
+            doc.close()
+            return image
+
+        except Exception as e:
+            logger.error(f"Error converting PDF page to image: {e}")
+            return None
+
+    def _gemini_ocr(self, image: Image.Image) -> Optional[int]:
+        """Extract page number from image using Gemini Flash Lite.
+
+        Args:
+            image: PIL Image of PDF page
+
+        Returns:
+            Detected page number or None
+        """
+        try:
+            # Configure Gemini
+            genai.configure(api_key=self.gemini_api_key)
+            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+
+            # Convert image to bytes
+            img_byte_arr = io.BytesIO()
+            image.save(img_byte_arr, format='PNG')
+            img_byte_arr.seek(0)
+
+            # Prepare prompt
+            prompt = """Look at this PDF page image. Find the page number that would appear in a journal citation.
+Look for page numbers in:
+- Headers (top of page)
+- Footers (bottom of page)
+- Corner numbers
+- Any visible page numbering
+
+If you find a page number, respond with ONLY the number and nothing else.
+If you cannot find a page number, respond with "NONE".
+
+Examples of valid responses:
+- "337"
+- "42"
+- "1142"
+- "NONE"
+"""
+
+            # Send to Gemini
+            response = model.generate_content([prompt, image])
+
+            # Parse response
+            text = response.text.strip()
+
+            if text.upper() == "NONE":
+                return None
+
+            # Extract number from response
+            match = re.search(r'\b(\d+)\b', text)
+            if match:
+                return int(match.group(1))
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Gemini OCR error: {e}")
+            return None
+
+    def _mistral_ocr(self, image: Image.Image) -> Optional[int]:
+        """Extract page number from image using Mistral Pixtral.
+
+        Args:
+            image: PIL Image of PDF page
+
+        Returns:
+            Detected page number or None
+        """
+        try:
+            # Convert image to base64
+            img_byte_arr = io.BytesIO()
+            image.save(img_byte_arr, format='PNG')
+            img_byte_arr.seek(0)
+            img_base64 = base64.b64encode(img_byte_arr.read()).decode('utf-8')
+
+            # Prepare request
+            headers = {
+                'Authorization': f'Bearer {self.mistral_api_key}',
+                'Content-Type': 'application/json'
+            }
+
+            data = {
+                'model': 'pixtral-12b-2409',
+                'messages': [
+                    {
+                        'role': 'user',
+                        'content': [
+                            {
+                                'type': 'text',
+                                'text': """Look at this PDF page image. Find the page number that would appear in a journal citation.
+Look for page numbers in headers, footers, or corners.
+
+If you find a page number, respond with ONLY the number.
+If you cannot find a page number, respond with "NONE".
+
+Examples: "337", "42", "NONE"
+"""
+                            },
+                            {
+                                'type': 'image_url',
+                                'image_url': f'data:image/png;base64,{img_base64}'
+                            }
+                        ]
+                    }
+                ]
+            }
+
+            # Send to Mistral API
+            response = requests.post(
+                'https://api.mistral.ai/v1/chat/completions',
+                headers=headers,
+                json=data,
+                timeout=30
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Mistral API error: {response.status_code}")
+                return None
+
+            result = response.json()
+            text = result['choices'][0]['message']['content'].strip()
+
+            if text.upper() == "NONE":
+                return None
+
+            # Extract number
+            match = re.search(r'\b(\d+)\b', text)
+            if match:
+                return int(match.group(1))
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Mistral OCR error: {e}")
+            return None
 
     # ==================== Strategy 5: Assume PDF Pagination ====================
 
