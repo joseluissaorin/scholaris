@@ -118,5 +118,9 @@ cython_debug/
 # Documentation drafts and backups
 *_PROPOSAL.md
 *_IMPROVEMENT*.md
+*_Plan.md
+*_Strategy.md
+*SaaS*.md
+*SaaS*.pdf
 *.backup
 *.bak
