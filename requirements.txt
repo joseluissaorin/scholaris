@@ -17,6 +17,12 @@ python-docx>=0.8.11
 markdown>=3.4.0
 beautifulsoup4>=4.11.0
 
+# Auto-citation system dependencies
+PyMuPDF>=1.23.0  # PDF text extraction (primary)
+pdfplumber>=0.10.0  # PDF text extraction (fallback for complex layouts)
+chromadb>=0.4.0  # Vector database for RAG
+mistralai>=0.0.11  # Mistral Pixtral for OCR (optional)
+
 # Optional dependencies
 # Uncomment if you want to use pdf2bib for BibTeX extraction
 # pdf2bib>=1.7

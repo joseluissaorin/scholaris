@@ -42,14 +42,23 @@ venv.bak/
 # Test files and reports (EXCLUDE FROM GIT)
 test_*.py
 *_test.py
+demo_*.py
+build_test_corpus.py
+quick_test/
+examples/*_demo.py
 TEST_*.md
 *_TEST_*.md
+*_COMPLETE.md
+*_PLAN*.md
+*_SUMMARY.md
+*_GUIDE.md
 INTEGRATION_TEST_RESULTS.md
 PHASE1_TEST_RESULTS.md
 COMPLETE_TEST_SUMMARY.md
 FINAL_IMPROVEMENTS.md
 test_output/
 test_search_output/
+test_corpus/
 .pytest_cache/
 .coverage
 htmlcov/
