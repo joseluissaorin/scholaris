@@ -8,11 +8,13 @@ This module handles the complete citation insertion workflow:
 5. Generate preview for user validation
 
 Week 2 Implementation: Full Context Mode with intelligent citation matching.
+Week 4 Enhancement: Multi-format input/output support.
 """
 
 import logging
 import re
-from typing import List, Optional, Dict, Any
+from pathlib import Path
+from typing import List, Optional, Dict, Any, Literal
 
 from .models import (
     CitationRequest,
@@ -24,6 +26,7 @@ from .models import (
 from .pdf_processor import PDFProcessor
 from .formatters import format_citation
 from .citation_engine import GeminiCitationEngine
+from .document_formats import DocumentFormatHandler, DocumentFormat
 
 # RAG engine (optional - only if ChromaDB installed)
 try:
@@ -229,6 +232,178 @@ class CitationOrchestrator:
             f"✓ Citation insertion complete: {len(citations)} citations, "
             f"{len(warnings)} warnings"
         )
+
+        return result
+
+    def insert_citations_from_file(
+        self,
+        input_file: str,
+        bibliography: List[PageAwarePDF],
+        style: CitationStyle = CitationStyle.APA7,
+        preview_mode: bool = False,
+        min_confidence: float = 0.7,
+        max_citations_per_claim: int = 3,
+        input_format: Optional[DocumentFormat] = None,
+    ) -> CitationResult:
+        """Insert citations from a document file (multi-format support).
+
+        Supports: TXT, MD, DOCX, PDF, HTML, RTF, ODT, LaTeX
+
+        Args:
+            input_file: Path to input document
+            bibliography: Processed bibliography (from process_bibliography)
+            style: Citation style (APA7 or CHICAGO17)
+            preview_mode: If True, preview without modifying
+            min_confidence: Minimum confidence for citation insertion
+            max_citations_per_claim: Maximum citations per claim
+            input_format: Document format (auto-detected if None)
+
+        Returns:
+            CitationResult with modified document text
+
+        Example:
+            >>> orchestrator = CitationOrchestrator(gemini_api_key="...")
+            >>> bibliography = orchestrator.process_bibliography(...)
+            >>> result = orchestrator.insert_citations_from_file(
+            ...     input_file="draft.docx",
+            ...     bibliography=bibliography,
+            ...     style=CitationStyle.APA7
+            ... )
+            >>> print(result.modified_document)
+        """
+        logger.info(f"Reading document from file: {input_file}")
+
+        # Read document text
+        try:
+            document_text = DocumentFormatHandler.read_document(
+                input_file,
+                format=input_format
+            )
+        except Exception as e:
+            logger.error(f"Failed to read document: {e}")
+            return CitationResult(
+                modified_document="",
+                citations=[],
+                warnings=[f"Failed to read document: {str(e)}"],
+                metadata={'error': str(e)}
+            )
+
+        logger.info(
+            f"✓ Document loaded: {len(document_text)} characters "
+            f"({len(document_text.split())} words)"
+        )
+
+        # Create citation request
+        request = CitationRequest(
+            document_text=document_text,
+            bibliography=bibliography,
+            style=style,
+            preview_mode=preview_mode,
+            min_confidence=min_confidence,
+            max_citations_per_claim=max_citations_per_claim,
+        )
+
+        # Process citations
+        return self.insert_citations(request)
+
+    def insert_citations_with_export(
+        self,
+        input_file: str,
+        output_file: str,
+        bibliography: List[PageAwarePDF],
+        style: CitationStyle = CitationStyle.APA7,
+        min_confidence: float = 0.7,
+        max_citations_per_claim: int = 3,
+        input_format: Optional[DocumentFormat] = None,
+        output_format: Optional[DocumentFormat] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> CitationResult:
+        """Complete workflow: Read document → Insert citations → Export to file.
+
+        Supports input/output in multiple formats:
+        - Plain text (.txt)
+        - Markdown (.md)
+        - Microsoft Word (.docx)
+        - PDF (.pdf) - input only
+        - HTML (.html)
+        - Rich Text Format (.rtf)
+        - OpenDocument Text (.odt)
+        - LaTeX (.tex)
+
+        Args:
+            input_file: Path to input document
+            output_file: Path to save cited document
+            bibliography: Processed bibliography (from process_bibliography)
+            style: Citation style (APA7 or CHICAGO17)
+            min_confidence: Minimum confidence for citation insertion
+            max_citations_per_claim: Maximum citations per claim
+            input_format: Input document format (auto-detected if None)
+            output_format: Output document format (auto-detected if None)
+            metadata: Document metadata (title, author, date)
+
+        Returns:
+            CitationResult with statistics and warnings
+
+        Example:
+            >>> orchestrator = CitationOrchestrator(gemini_api_key="...")
+            >>> bibliography = orchestrator.process_bibliography(...)
+            >>> result = orchestrator.insert_citations_with_export(
+            ...     input_file="draft.docx",
+            ...     output_file="cited_paper.docx",
+            ...     bibliography=bibliography,
+            ...     style=CitationStyle.APA7,
+            ...     metadata={"title": "My Research", "author": "John Doe"}
+            ... )
+            >>> print(f"✓ Inserted {len(result.citations)} citations")
+        """
+        logger.info(
+            f"Complete citation workflow: {input_file} → {output_file}"
+        )
+
+        # Step 1: Read and process document
+        result = self.insert_citations_from_file(
+            input_file=input_file,
+            bibliography=bibliography,
+            style=style,
+            preview_mode=False,  # Actually insert citations
+            min_confidence=min_confidence,
+            max_citations_per_claim=max_citations_per_claim,
+            input_format=input_format,
+        )
+
+        if result.warnings and any('Failed to read' in w for w in result.warnings):
+            logger.error("Failed to process document - aborting export")
+            return result
+
+        # Step 2: Export cited document
+        logger.info(f"Exporting cited document to: {output_file}")
+        try:
+            # Map citation style for format handler
+            citation_style_str = "apa" if style == CitationStyle.APA7 else "chicago"
+
+            DocumentFormatHandler.write_document(
+                text=result.modified_document,
+                output_path=output_file,
+                format=output_format,
+                citation_style=citation_style_str,
+                metadata=metadata or {},
+            )
+
+            logger.info(
+                f"✓ Export complete: {len(result.citations)} citations inserted"
+            )
+
+            # Add export info to metadata
+            result.metadata['input_file'] = input_file
+            result.metadata['output_file'] = output_file
+            result.metadata['export_format'] = str(
+                output_format or DocumentFormatHandler.detect_format(output_file)
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to export document: {e}")
+            result.warnings.append(f"Export failed: {str(e)}")
+            result.metadata['export_error'] = str(e)
 
         return result
 

@@ -24,6 +24,13 @@ Pillow>=10.0.0  # Image processing for vision OCR
 chromadb>=0.4.0  # Vector database for RAG
 mistralai>=0.0.11  # Mistral Pixtral for OCR (optional fallback)
 
+# Multi-format document support
+pypdf>=3.17.0  # PDF reading (input)
+pypandoc>=1.12  # RTF support (requires pandoc system-wide)
+odfpy>=1.4.1  # OpenDocument Text (.odt) support
+weasyprint>=60.0  # PDF export (high quality, preferred)
+reportlab>=4.0.0  # PDF export (fallback)
+
 # Optional dependencies
 # Uncomment if you want to use pdf2bib for BibTeX extraction
 # pdf2bib>=1.7

@@ -44,6 +44,7 @@ review = scholar.complete_workflow(
 - **AI-Powered Matching**: Gemini finds relevant sources for your claims
 - **Multiple Styles**: APA 7th & Chicago 17th Edition
 - **Preview Mode**: Review citations before inserting
+- **Multi-Format I/O**: Read/write TXT, MD, DOCX, PDF, HTML, RTF, ODT, LaTeX
 
 ```python
 from scholaris.auto_cite import CitationOrchestrator
@@ -185,6 +186,46 @@ high-responsivity detectors for extreme ultraviolet radiation. (Shabbir, 2025, p
 - ✅ All citations placed at claim-specific locations
 - ✅ 90% reliable page detection (9/10 papers)
 
+**Multi-Format File Support:**
+
+Read and write documents in any format:
+
+```python
+from scholaris.auto_cite import CitationOrchestrator
+from scholaris.auto_cite.models import CitationStyle
+
+orchestrator = CitationOrchestrator(gemini_api_key="your-key")
+bibliography = orchestrator.process_bibliography(...)
+
+# Complete workflow: Read DOCX → Insert citations → Export to PDF
+result = orchestrator.insert_citations_with_export(
+    input_file="draft.docx",      # Read from Word
+    output_file="cited_paper.pdf", # Export to PDF
+    bibliography=bibliography,
+    style=CitationStyle.APA7,
+    metadata={"title": "My Research", "author": "John Doe"}
+)
+
+print(f"✓ Inserted {len(result.citations)} citations")
+# ✓ Inserted 15 citations
+```
+
+**Supported Formats:**
+
+| Format | Input | Output | Notes |
+|--------|-------|--------|-------|
+| Plain Text (`.txt`) | ✅ | ✅ | Universal support |
+| Markdown (`.md`) | ✅ | ✅ | With YAML frontmatter |
+| Microsoft Word (`.docx`) | ✅ | ✅ | Full formatting support |
+| HTML (`.html`) | ✅ | ✅ | Web-ready documents |
+| PDF (`.pdf`) | ✅ | ✅ | Text extraction / Export |
+| LaTeX (`.tex`) | ✅ | ✅ | Academic publishing |
+| Rich Text (`.rtf`) | ✅ | ✅ | Requires pandoc |
+| OpenDocument (`.odt`) | ✅ | ✅ | LibreOffice compatible |
+
+**Format Auto-Detection:**
+File formats are automatically detected from extensions - no manual configuration needed!
+
 ### 📝 **AI Literature Reviews**
 - **Intelligent Writing**: Gemini-powered synthesis
 - **Custom Sections**: Define your own structure
@@ -192,10 +233,14 @@ high-responsivity detectors for extreme ultraviolet radiation. (Shabbir, 2025, p
 - **Academic Quality**: APA-style formatting
 
 ### 📤 **Multi-Format Export**
-- Markdown (`.md`)
+- Markdown (`.md`) - With YAML frontmatter
 - Microsoft Word (`.docx`) - APA formatted
-- HTML (`.html`)
-- BibTeX (`.bib`)
+- HTML (`.html`) - Web-ready with CSS
+- PDF (`.pdf`) - High-quality export
+- LaTeX (`.tex`) - Academic publishing
+- Rich Text (`.rtf`) - Cross-platform
+- OpenDocument (`.odt`) - LibreOffice
+- BibTeX (`.bib`) - Reference management
 
 ---
 
@@ -359,6 +404,8 @@ orchestrator = CitationOrchestrator(
 |--------|-------------|---------|
 | `process_bibliography(pdf_paths, citation_keys, references, bib_entries)` | Load & detect page offsets | `List[PageAwarePDF]` |
 | `insert_citations(request)` | Auto-insert citations (hybrid mode) | `CitationResult` |
+| `insert_citations_from_file(input_file, bibliography, style, ...)` | Read file → Insert citations | `CitationResult` |
+| `insert_citations_with_export(input_file, output_file, bibliography, ...)` | Complete workflow with I/O | `CitationResult` |
 
 **Models:**
 - `CitationRequest`: Configuration for citation insertion
@@ -457,6 +504,50 @@ result = orchestrator.insert_citations(request)
 
 print(f"Mode used: {result.metadata['mode']}")  # "RAG"
 print(f"Citations: {len(result.citations)}")
+```
+
+### Multi-Format Document Conversion
+```python
+from scholaris.auto_cite import CitationOrchestrator
+from scholaris.auto_cite.models import CitationStyle
+
+orchestrator = CitationOrchestrator(gemini_api_key="your-key")
+bibliography = orchestrator.process_bibliography(...)
+
+# Convert Word document to PDF with citations
+result = orchestrator.insert_citations_with_export(
+    input_file="thesis_chapter.docx",     # Read from Word
+    output_file="thesis_chapter.pdf",     # Export to PDF
+    bibliography=bibliography,
+    style=CitationStyle.APA7,
+    metadata={
+        "title": "Chapter 3: Machine Learning Methods",
+        "author": "Jane Researcher",
+        "date": "2024"
+    }
+)
+
+# LaTeX to HTML conversion
+result = orchestrator.insert_citations_with_export(
+    input_file="paper.tex",               # Read LaTeX
+    output_file="paper.html",             # Export to HTML
+    bibliography=bibliography,
+    style=CitationStyle.APA7
+)
+
+# Markdown to DOCX (most common workflow)
+result = orchestrator.insert_citations_with_export(
+    input_file="draft.md",                # Read Markdown
+    output_file="final_paper.docx",       # Export to Word
+    bibliography=bibliography,
+    style=CitationStyle.APA7,
+    metadata={"title": "Research Paper", "author": "Your Name"}
+)
+
+print(f"✓ {len(result.citations)} citations inserted")
+print(f"✓ Exported to: {result.metadata['output_file']}")
+# ✓ 23 citations inserted
+# ✓ Exported to: final_paper.docx
 ```
 
 ---
