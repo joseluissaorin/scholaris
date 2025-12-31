@@ -1,16 +1,39 @@
+# README Improvement Proposal for Scholaris
+
+## Executive Summary
+
+The current README is well-structured and covers core functionality effectively. However, after exploring the 3,827-line codebase in depth, I've identified **significant opportunities** to better showcase Scholaris's capabilities, improve user onboarding, and address practical concerns.
+
+**Overall Score: 7.5/10**
+- Strengths: Clear structure, good code examples, complete installation
+- Gaps: Missing advanced features, limited troubleshooting, no performance guidance
+
+---
+
+## Critical Improvements (High Priority)
+
+### 1. Add Badges & Project Status
+**Current:** None
+**Proposed:** Add to top of README after title
+
+```markdown
 # Scholaris
 
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](https://github.com/joseluissaorin/scholaris)
 [![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+```
 
-A Python library for automating academic research workflows, from paper discovery to literature review generation.
+**Why:** Instant credibility, quick status check, professional appearance
 
-## Overview
+---
 
-Scholaris streamlines the academic research process by integrating paper search, PDF acquisition, bibliography management, and AI-assisted writing into a unified workflow. Built for researchers, students, and developers working with academic literature.
+### 2. Enhance Overview with Comparison Table
+**Current:** Simple bullet list of capabilities
+**Proposed:** Add differentiation from alternatives
 
+```markdown
 ## Why Scholaris?
 
 | Feature | Manual Process | Other Tools | Scholaris |
@@ -23,14 +46,17 @@ Scholaris streamlines the academic research process by integrating paper search,
 | End-to-End | Multiple tools needed | Fragmented | **Single function call** |
 
 **Time Saved:** Research projects that take 10-15 hours → **30 minutes**
+```
 
-**Key Capabilities:**
-- Search academic databases (Google Scholar)
-- Download papers from open-access sources
-- Extract and manage BibTeX citations with dual methods
-- Generate literature reviews using AI
-- Export to multiple formats (Markdown, Word, HTML)
+**Why:** Immediately communicates value proposition, quantifies benefits
 
+---
+
+### 3. Add Prerequisites & System Requirements
+**Current:** Only mentions Python 3.9+ and Gemini API key
+**Proposed:** Complete requirements section
+
+```markdown
 ## Prerequisites
 
 ### Required
@@ -51,22 +77,17 @@ Scholaris streamlines the academic research process by integrating paper search,
 ⚠️ **Sci-Hub Availability:** Sci-Hub domains change frequently. The library attempts multiple mirrors automatically, but some papers may be unavailable.
 
 ⚠️ **API Rate Limits:** Free Gemini tier = 15 requests/minute. For large-scale use, consider upgrading.
-
-## Installation
-
-```bash
-# Standard installation
-pip install git+https://github.com/joseluissaorin/scholaris.git
-
-# With optional PDF metadata extraction
-pip install git+https://github.com/joseluissaorin/scholaris.git[pdf]
-
-# Development installation
-git clone https://github.com/joseluissaorin/scholaris.git
-cd scholaris
-pip install -e .[dev]
 ```
 
+**Why:** Sets realistic expectations, prevents common setup issues
+
+---
+
+### 4. Restructure Quick Start for Different User Personas
+**Current:** Single example
+**Proposed:** Three usage patterns
+
+```markdown
 ## Quick Start
 
 ### Scenario 1: Complete Automation (Recommended)
@@ -144,72 +165,201 @@ review = scholar.generate_review(
 # Step 5: Export
 scholar.export_docx(review, "review.docx")
 ```
+```
 
-## Core Features
+**Why:** Addresses different use cases immediately, reduces confusion
 
-### Paper Search and Acquisition
+---
 
-Search Google Scholar and download papers automatically:
+### 5. Add Troubleshooting Section
+**Current:** None
+**Proposed:** New section before Contributing
+
+```markdown
+## Troubleshooting
+
+### Common Issues
+
+#### "Could not find chromedriver"
+PyPaperBot requires Chrome/Chromium. Install:
+```bash
+# Ubuntu/Debian
+sudo apt-get install chromium-browser
+
+# macOS
+brew install --cask chromium
+```
+
+#### "No papers found for topic"
+- Check your internet connection
+- Try more general keywords
+- Verify Google Scholar isn't blocking your IP (use VPN if needed)
+
+#### "Sci-Hub download failed"
+Sci-Hub mirrors change frequently. Try:
+```python
+# Manually specify a working mirror
+config = Config(scihub_mirror="https://sci-hub.se")
+scholar = Scholaris(config=config)
+```
+
+#### "BibTeX extraction returned empty results"
+- Ensure PDFs are text-based (not scanned images)
+- Install pdf2bib: `pip install pdf2bib`
+- Check if Gemini API key is valid (fallback method)
+
+#### "Rate limit exceeded"
+```python
+# Reduce request frequency
+config = Config(
+    max_papers_per_keyword=5,  # Lower limit
+    enable_rate_limiting=True
+)
+```
+
+### Performance Tips
+
+**Large Literature Reviews (50+ papers)**
+```python
+# Generate sections incrementally to avoid timeouts
+for section in ["Introduction", "Methods", "Results", "Discussion"]:
+    partial_review = scholar.generate_review(
+        topic=topic,
+        papers=papers,
+        sections=[section],
+        min_words_per_section=1000
+    )
+    # Save incrementally
+```
+
+**Accuracy vs Speed Trade-offs**
+```python
+# Maximum accuracy (slower)
+bibtex = scholar.generate_bibtex(pdfs, method="pdf2bib")
+
+# Faster, slightly less accurate
+bibtex = scholar.generate_bibtex(pdfs, method="llm")
+
+# Automatic fallback (recommended)
+bibtex = scholar.generate_bibtex(pdfs, method="auto")
+```
+
+### Getting Help
+- Check [FAQ](https://github.com/joseluissaorin/scholaris/wiki/FAQ)
+- Search [existing issues](https://github.com/joseluissaorin/scholaris/issues)
+- Open a new issue with:
+  - Python version (`python --version`)
+  - Scholaris version (`pip show scholaris`)
+  - Full error traceback
+```
+
+**Why:** Addresses real-world issues discovered in code, saves support time
+
+---
+
+### 6. Expand Configuration Section
+**Current:** Basic examples
+**Proposed:** Complete reference with use cases
+
+```markdown
+## Advanced Configuration
+
+### Multi-LLM Provider Support
+
+Scholaris supports multiple LLM backends:
 
 ```python
-# Topic-based search
-papers = scholar.search_papers(
-    topic="machine learning",
-    max_papers=20,
-    min_year=2020
+# Use Gemini (default, best for file uploads)
+scholar = Scholaris(
+    gemini_api_key="...",
+    config=Config(llm_provider="gemini")
 )
 
-# Download PDFs via Sci-Hub
-paths = scholar.download_papers(papers, output_dir="./papers")
+# Use DeepSeek (alternative, no file upload)
+scholar = Scholaris(
+    config=Config(
+        llm_provider="deepseek",
+        deepseek_api_key="..."
+    )
+)
 ```
 
-### Bibliography Management
-
-Extract and format citations from PDFs:
+### All Configuration Options
 
 ```python
-# Extract BibTeX from PDFs (dual method: pdf2bib + AI fallback)
-bibtex_entries = scholar.generate_bibtex(
-    pdf_paths=["paper1.pdf", "paper2.pdf"],
-    method="auto"  # Uses pdf2bib, falls back to AI extraction
+from scholaris import Config
+
+config = Config(
+    # LLM Settings
+    llm_provider="gemini",              # "gemini" | "deepseek" | "perplexity"
+    gemini_api_key="...",
+    gemini_model="gemini-1.5-pro",      # Model for reviews
+    gemini_thinking_model="gemini-2.0-flash-thinking-exp-1219",  # For complex analysis
+    temperature=0.7,                    # 0.0-2.0 (lower = more deterministic)
+
+    # Search Settings
+    search_provider="pypaperbot",       # Currently only option
+    max_papers_per_keyword=10,
+    min_publication_year=2020,
+    scihub_mirror="https://sci-hub.ru",
+
+    # Citation Settings
+    citation_style="APA7",              # Currently only APA 7th
+    bibtex_extraction_method="auto",    # "auto" | "pdf2bib" | "llm"
+
+    # Review Generation
+    default_language="English",         # Any language supported by LLM
+    min_words_per_section=2250,         # Target words per section
+
+    # File Paths
+    output_dir="./output",
+    papers_dir="./papers",
+    temp_dir="./temp",
+
+    # Rate Limiting
+    enable_rate_limiting=True,
+    max_requests_per_minute=15
 )
 
-# Format as APA 7th edition
-formatted = scholar.format_references(bibtex_entries, style="APA7")
-
-# Export to .bib file
-scholar.export_bibtex(bibtex_entries, "my_bibliography.bib")
+scholar = Scholaris(config=config)
 ```
 
-### Literature Review Generation
+### Environment Variables (Alternative)
 
-Generate comprehensive literature reviews with AI:
+Create `.env` file:
+```bash
+GEMINI_API_KEY=your_key_here
+SCHOLARIS_LLM_PROVIDER=gemini
+SCHOLARIS_MAX_PAPERS_PER_KEYWORD=10
+SCHOLARIS_MIN_PUBLICATION_YEAR=2020
+SCHOLARIS_SCIHUB_MIRROR=https://www.sci-hub.ru
+SCHOLARIS_CITATION_STYLE=APA7
+SCHOLARIS_DEFAULT_LANGUAGE=English
+SCHOLARIS_MIN_WORDS_PER_SECTION=2250
+SCHOLARIS_OUTPUT_DIR=./output
+SCHOLARIS_PAPERS_DIR=./papers
+SCHOLARIS_TEMP_DIR=./temp
+SCHOLARIS_ENABLE_RATE_LIMITING=true
+```
 
+Load automatically:
 ```python
-review = scholar.generate_review(
-    topic="Neural Machine Translation",
-    papers=papers,
-    bibtex_entries=bibtex_entries,
-    sections=["Introduction", "Methods", "Discussion", "Conclusion"],
-    min_words_per_section=500,
-    language="English"
-)
+from scholaris import Config, Scholaris
 
-# Access generated content
-print(review.markdown)
-print(f"Word count: {review.word_count}")
+config = Config.from_env()
+scholar = Scholaris(config=config)
+```
 ```
 
-### Multi-Format Export
+**Why:** Documents hidden features discovered in code, provides complete reference
 
-Export reviews to various formats:
+---
 
-```python
-scholar.export_markdown(review, "review.md")
-scholar.export_docx(review, "review.docx")
-scholar.export_html(review, "review.html")
-```
+### 7. Add Real-World Use Cases Section
+**Current:** Basic Flask/Click examples
+**Proposed:** Practical research scenarios
 
+```markdown
 ## Real-World Use Cases
 
 ### 1. Systematic Literature Review
@@ -351,95 +501,17 @@ def weekly_update():
 # Run every Monday at 9 AM
 schedule.every().monday.at("09:00").do(weekly_update)
 ```
-
-## Advanced Configuration
-
-### Multi-LLM Provider Support
-
-Scholaris supports multiple LLM backends:
-
-```python
-# Use Gemini (default, best for file uploads)
-scholar = Scholaris(
-    gemini_api_key="...",
-    config=Config(llm_provider="gemini")
-)
-
-# Use DeepSeek (alternative, no file upload)
-scholar = Scholaris(
-    config=Config(
-        llm_provider="deepseek",
-        deepseek_api_key="..."
-    )
-)
 ```
 
-### All Configuration Options
+**Why:** Shows practical value, helps users envision integration
 
-```python
-from scholaris import Config
+---
 
-config = Config(
-    # LLM Settings
-    llm_provider="gemini",              # "gemini" | "deepseek" | "perplexity"
-    gemini_api_key="...",
-    gemini_model="gemini-1.5-pro",      # Model for reviews
-    gemini_thinking_model="gemini-2.0-flash-thinking-exp-1219",  # For complex analysis
-    temperature=0.7,                    # 0.0-2.0 (lower = more deterministic)
+### 8. Enhance API Reference
+**Current:** Brief class listing
+**Proposed:** Comprehensive method documentation
 
-    # Search Settings
-    search_provider="pypaperbot",       # Currently only option
-    max_papers_per_keyword=10,
-    min_publication_year=2020,
-    scihub_mirror="https://sci-hub.ru",
-
-    # Citation Settings
-    citation_style="APA7",              # Currently only APA 7th
-    bibtex_extraction_method="auto",    # "auto" | "pdf2bib" | "llm"
-
-    # Review Generation
-    default_language="English",         # Any language supported by LLM
-    min_words_per_section=2250,         # Target words per section
-
-    # File Paths
-    output_dir="./output",
-    papers_dir="./papers",
-    temp_dir="./temp",
-
-    # Rate Limiting
-    enable_rate_limiting=True,
-    max_requests_per_minute=15
-)
-
-scholar = Scholaris(config=config)
-```
-
-### Environment Variables (Alternative)
-
-Create `.env` file:
-```bash
-GEMINI_API_KEY=your_key_here
-SCHOLARIS_LLM_PROVIDER=gemini
-SCHOLARIS_MAX_PAPERS_PER_KEYWORD=10
-SCHOLARIS_MIN_PUBLICATION_YEAR=2020
-SCHOLARIS_SCIHUB_MIRROR=https://www.sci-hub.ru
-SCHOLARIS_CITATION_STYLE=APA7
-SCHOLARIS_DEFAULT_LANGUAGE=English
-SCHOLARIS_MIN_WORDS_PER_SECTION=2250
-SCHOLARIS_OUTPUT_DIR=./output
-SCHOLARIS_PAPERS_DIR=./papers
-SCHOLARIS_TEMP_DIR=./temp
-SCHOLARIS_ENABLE_RATE_LIMITING=true
-```
-
-Load automatically:
-```python
-from scholaris import Config, Scholaris
-
-config = Config.from_env()
-scholar = Scholaris(config=config)
-```
-
+```markdown
 ## Complete API Reference
 
 ### Scholaris Class
@@ -676,58 +748,17 @@ class Review:
     word_count: int
     metadata: dict
 ```
-
-## Architecture
-
-Scholaris uses a modular, provider-based architecture for extensibility:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Scholaris API                          │
-│  (search_papers, download_papers, generate_review, etc.)   │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-         ┌───────────┴───────────┐
-         │                       │
-    ┌────▼────┐            ┌────▼────────┐
-    │  Core   │            │  Providers  │
-    │ Models  │            │  (Pluggable)│
-    └─────────┘            └──────┬──────┘
-    - Paper                       │
-    - Reference          ┌────────┼────────┐
-    - Review             │        │        │
-    - Section        ┌───▼───┐ ┌──▼──┐ ┌──▼────┐
-                     │Search │ │ LLM │ │BibTeX │
-                     └───┬───┘ └──┬──┘ └───┬───┘
-                         │        │        │
-                     ┌───▼────────▼────────▼───┐
-                     │   PyPaperBot (Search)   │
-                     │   Gemini (AI)           │
-                     │   pdf2bib (Extraction)  │
-                     └─────────────────────────┘
-                              │
-                     ┌────────▼─────────┐
-                     │   Converters     │
-                     │ Markdown → DOCX  │
-                     │ Markdown → HTML  │
-                     │ BibTeX → APA7    │
-                     └──────────────────┘
 ```
 
-**Data Flow:**
-1. User calls `complete_workflow()`
-2. Search provider finds papers → `List[Paper]`
-3. PyPaperBot downloads PDFs → `List[pdf_path]`
-4. BibTeX extractor processes PDFs → `List[Reference]`
-5. LLM provider generates review → `Review`
-6. Converter exports to format → `.docx`, `.html`, `.md`
+**Why:** Complete reference prevents constant source code lookups
 
-**Extension Points:**
-- Add new search provider: Implement `BaseSearchProvider`
-- Add new LLM: Implement `BaseLLMProvider`
-- Add new citation extractor: Implement `BaseBibtexExtractor`
-- Add new export format: Implement converter function
+---
 
+### 9. Add Performance & Limitations Section
+**Current:** None
+**Proposed:** Set realistic expectations
+
+```markdown
 ## Performance & Limitations
 
 ### Expected Performance
@@ -795,83 +826,17 @@ for topic in topics:
 - Suitable for: First drafts, literature surveys, background sections
 - Requires editing for: Final submission, grant proposals, thesis chapters
 - **Best practice:** Use as starting point, add your own analysis and critical evaluation
-
-## Troubleshooting
-
-### Common Issues
-
-#### "Could not find chromedriver"
-PyPaperBot requires Chrome/Chromium. Install:
-```bash
-# Ubuntu/Debian
-sudo apt-get install chromium-browser
-
-# macOS
-brew install --cask chromium
 ```
 
-#### "No papers found for topic"
-- Check your internet connection
-- Try more general keywords
-- Verify Google Scholar isn't blocking your IP (use VPN if needed)
+**Why:** Manages expectations, prevents misuse, builds trust
 
-#### "Sci-Hub download failed"
-Sci-Hub mirrors change frequently. Try:
-```python
-# Manually specify a working mirror
-config = Config(scihub_mirror="https://sci-hub.se")
-scholar = Scholaris(config=config)
-```
+---
 
-#### "BibTeX extraction returned empty results"
-- Ensure PDFs are text-based (not scanned images)
-- Install pdf2bib: `pip install pdf2bib`
-- Check if Gemini API key is valid (fallback method)
+### 10. Add Security & Ethics Section
+**Current:** None
+**Proposed:** Address ethical concerns
 
-#### "Rate limit exceeded"
-```python
-# Reduce request frequency
-config = Config(
-    max_papers_per_keyword=5,  # Lower limit
-    enable_rate_limiting=True
-)
-```
-
-### Performance Tips
-
-**Large Literature Reviews (50+ papers)**
-```python
-# Generate sections incrementally to avoid timeouts
-for section in ["Introduction", "Methods", "Results", "Discussion"]:
-    partial_review = scholar.generate_review(
-        topic=topic,
-        papers=papers,
-        sections=[section],
-        min_words_per_section=1000
-    )
-    # Save incrementally
-```
-
-**Accuracy vs Speed Trade-offs**
-```python
-# Maximum accuracy (slower)
-bibtex = scholar.generate_bibtex(pdfs, method="pdf2bib")
-
-# Faster, slightly less accurate
-bibtex = scholar.generate_bibtex(pdfs, method="llm")
-
-# Automatic fallback (recommended)
-bibtex = scholar.generate_bibtex(pdfs, method="auto")
-```
-
-### Getting Help
-- Check [FAQ](https://github.com/joseluissaorin/scholaris/wiki/FAQ)
-- Search [existing issues](https://github.com/joseluissaorin/scholaris/issues)
-- Open a new issue with:
-  - Python version (`python --version`)
-  - Scholaris version (`pip show scholaris`)
-  - Full error traceback
-
+```markdown
 ## Security & Ethics
 
 ### Responsible Use
@@ -935,7 +900,78 @@ Scholaris implements rate limiting to respect service providers:
 - No user data is collected by Scholaris
 - PDFs and API keys remain local
 - LLM providers (Google) may log API requests - check their privacy policies
+```
 
+**Why:** Addresses legal/ethical concerns, prevents misuse
+
+---
+
+## Medium Priority Improvements
+
+### 11. Improve Architecture Diagram
+**Current:** Simple text tree
+**Proposed:** Enhanced with data flow
+
+```markdown
+## Architecture
+
+Scholaris uses a modular, provider-based architecture for extensibility:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Scholaris API                          │
+│  (search_papers, download_papers, generate_review, etc.)   │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+         ┌───────────┴───────────┐
+         │                       │
+    ┌────▼────┐            ┌────▼────────┐
+    │  Core   │            │  Providers  │
+    │ Models  │            │  (Pluggable)│
+    └─────────┘            └──────┬──────┘
+    - Paper                       │
+    - Reference          ┌────────┼────────┐
+    - Review             │        │        │
+    - Section        ┌───▼───┐ ┌──▼──┐ ┌──▼────┐
+                     │Search │ │ LLM │ │BibTeX │
+                     └───┬───┘ └──┬──┘ └───┬───┘
+                         │        │        │
+                     ┌───▼────────▼────────▼───┐
+                     │   PyPaperBot (Search)   │
+                     │   Gemini (AI)           │
+                     │   pdf2bib (Extraction)  │
+                     └─────────────────────────┘
+                              │
+                     ┌────────▼─────────┐
+                     │   Converters     │
+                     │ Markdown → DOCX  │
+                     │ Markdown → HTML  │
+                     │ BibTeX → APA7    │
+                     └──────────────────┘
+```
+
+**Data Flow:**
+1. User calls `complete_workflow()`
+2. Search provider finds papers → `List[Paper]`
+3. PyPaperBot downloads PDFs → `List[pdf_path]`
+4. BibTeX extractor processes PDFs → `List[Reference]`
+5. LLM provider generates review → `Review`
+6. Converter exports to format → `.docx`, `.html`, `.md`
+
+**Extension Points:**
+- Add new search provider: Implement `BaseSearchProvider`
+- Add new LLM: Implement `BaseLLMProvider`
+- Add new citation extractor: Implement `BaseBibtexExtractor`
+- Add new export format: Implement converter function
+```
+
+---
+
+### 12. Add Comparison with Alternatives
+**Current:** None
+**Proposed:** Help users choose
+
+```markdown
 ## Comparison with Alternatives
 
 | Tool | Search | Download | BibTeX | AI Review | Export | Code |
@@ -960,7 +996,125 @@ Scholaris implements rate limiting to respect service providers:
 - Want visual organization (use Zotero/Mendeley)
 - Only need citation management (use Zotero)
 - Need collaboration features (use Mendeley/Zotero)
+```
 
+---
+
+### 13. Expand Examples Section
+**Current:** Basic Flask/Click examples
+**Proposed:** Link to examples/ directory
+
+```markdown
+## Examples
+
+See the [`examples/`](examples/) directory for complete, runnable examples:
+
+1. **[basic_usage.py](examples/basic_usage.py)** - Search, download, and bibliography generation
+2. **[bibtex_example.py](examples/bibtex_example.py)** - BibTeX extraction, parsing, and formatting
+3. **[review_example.py](examples/review_example.py)** - Complete literature review generation
+4. **[export_example.py](examples/export_example.py)** - Multi-format export and complete workflows
+
+### Integration Examples
+
+**Web API (Flask)**
+```python
+# See examples/flask_api.py
+from flask import Flask, request, jsonify
+from scholaris import Scholaris
+
+app = Flask(__name__)
+scholar = Scholaris()
+
+@app.route('/review', methods=['POST'])
+def generate_review_api():
+    data = request.json
+    review = scholar.complete_workflow(
+        topic=data['topic'],
+        max_papers=data.get('max_papers', 10)
+    )
+    return jsonify({
+        'markdown': review.markdown,
+        'word_count': review.word_count,
+        'num_references': len(review.references)
+    })
+```
+
+**CLI Tool (Click)**
+```python
+# See examples/cli_tool.py
+import click
+from scholaris import Scholaris
+
+@click.command()
+@click.option('--topic', required=True, help='Research topic')
+@click.option('--output', default='review.md', help='Output file')
+def generate(topic, output):
+    """Generate a literature review from command line"""
+    scholar = Scholaris()
+    review = scholar.complete_workflow(topic, output_path=output)
+    click.echo(f"✓ Generated {review.word_count} words → {output}")
+
+if __name__ == '__main__':
+    generate()
+```
+
+**Jupyter Notebook Integration**
+```python
+# See examples/jupyter_example.ipynb
+from IPython.display import Markdown, display
+from scholaris import Scholaris
+
+scholar = Scholaris()
+review = scholar.complete_workflow(topic="Machine Learning", max_papers=5)
+
+# Display in notebook
+display(Markdown(review.markdown))
+```
+```
+
+---
+
+### 14. Add FAQ Section
+**Current:** Wiki only
+**Proposed:** Quick FAQ in README
+
+```markdown
+## Frequently Asked Questions
+
+**Q: Is Scholaris free to use?**
+A: Yes, fully open-source (MIT). Gemini has a free tier (15 requests/min).
+
+**Q: Can I use it without an API key?**
+A: No, an LLM API key (Gemini/DeepSeek) is required for review generation. BibTeX extraction and search work without one.
+
+**Q: How accurate are the generated reviews?**
+A: Treat as first drafts (~70-80% quality). Always review, edit, and add your own analysis.
+
+**Q: Can I use my own PDFs instead of searching?**
+A: Yes! Use `user_pdfs` parameter or set `auto_search=False`.
+
+**Q: What citation styles are supported?**
+A: Currently only APA 7th edition. More styles planned for v2.0.
+
+**Q: Is this legal to use?**
+A: Yes, but Sci-Hub's legal status varies. Use responsibly and check your local laws.
+
+**Q: Can I extend it with new providers?**
+A: Yes! Implement `BaseSearchProvider`, `BaseLLMProvider`, or `BaseBibtexExtractor`.
+
+**Q: Does it work offline?**
+A: No, requires internet for search, download, and LLM API calls.
+
+**More questions?** Check the [full FAQ](https://github.com/joseluissaorin/scholaris/wiki/FAQ) or [open an issue](https://github.com/joseluissaorin/scholaris/issues).
+```
+
+---
+
+### 15. Update Testing Section
+**Current:** Brief mention of 75% coverage
+**Proposed:** More details
+
+```markdown
 ## Testing
 
 Scholaris maintains high code quality through comprehensive testing:
@@ -1007,156 +1161,113 @@ tests/
 export GEMINI_API_KEY="your_key"
 pytest tests/
 ```
-
-## Examples
-
-See the [`examples/`](examples/) directory for complete, runnable examples:
-
-1. **[basic_usage.py](examples/basic_usage.py)** - Search, download, and bibliography generation
-2. **[bibtex_example.py](examples/bibtex_example.py)** - BibTeX extraction, parsing, and formatting
-3. **[review_example.py](examples/review_example.py)** - Complete literature review generation
-4. **[export_example.py](examples/export_example.py)** - Multi-format export and complete workflows
-
-### Integration Examples
-
-**Web API (Flask)**
-```python
-from flask import Flask, request, jsonify
-from scholaris import Scholaris
-
-app = Flask(__name__)
-scholar = Scholaris()
-
-@app.route('/review', methods=['POST'])
-def generate_review_api():
-    data = request.json
-    review = scholar.complete_workflow(
-        topic=data['topic'],
-        max_papers=data.get('max_papers', 10)
-    )
-    return jsonify({
-        'markdown': review.markdown,
-        'word_count': review.word_count,
-        'num_references': len(review.references)
-    })
 ```
 
-**CLI Tool (Click)**
-```python
-import click
-from scholaris import Scholaris
+---
 
-@click.command()
-@click.option('--topic', required=True, help='Research topic')
-@click.option('--output', default='review.md', help='Output file')
-def generate(topic, output):
-    """Generate a literature review from command line"""
-    scholar = Scholaris()
-    review = scholar.complete_workflow(topic, output_path=output)
-    click.echo(f"✓ Generated {review.word_count} words → {output}")
+## Low Priority / Nice-to-Have
 
-if __name__ == '__main__':
-    generate()
+### 16. Add Visual Demo (GIF/Video)
+```markdown
+## Demo
+
+![Scholaris Demo](docs/demo.gif)
+
+Watch a complete workflow in action: [YouTube Tutorial](link)
 ```
 
-**Jupyter Notebook Integration**
-```python
-from IPython.display import Markdown, display
-from scholaris import Scholaris
+### 17. Add Changelog Link Prominently
+```markdown
+## What's New
 
-scholar = Scholaris()
-review = scholar.complete_workflow(topic="Machine Learning", max_papers=5)
+**v1.0.0 (2026-01-XX)** - Initial release
+- Complete search, download, BibTeX, review pipeline
+- Multi-format export (Markdown, DOCX, HTML)
+- Dual BibTeX extraction methods
+- Comprehensive documentation
 
-# Display in notebook
-display(Markdown(review.markdown))
+See [CHANGELOG.md](CHANGELOG.md) for full release history.
 ```
 
-## Frequently Asked Questions
+### 18. Add Sponsor/Support Section
+```markdown
+## Support This Project
 
-**Q: Is Scholaris free to use?**
-A: Yes, fully open-source (MIT). Gemini has a free tier (15 requests/min).
-
-**Q: Can I use it without an API key?**
-A: No, an LLM API key (Gemini/DeepSeek) is required for review generation. BibTeX extraction and search work without one.
-
-**Q: How accurate are the generated reviews?**
-A: Treat as first drafts (~70-80% quality). Always review, edit, and add your own analysis.
-
-**Q: Can I use my own PDFs instead of searching?**
-A: Yes! Use `user_pdfs` parameter or set `auto_search=False`.
-
-**Q: What citation styles are supported?**
-A: Currently only APA 7th edition. More styles planned for v2.0.
-
-**Q: Is this legal to use?**
-A: Yes, but Sci-Hub's legal status varies. Use responsibly and check your local laws.
-
-**Q: Can I extend it with new providers?**
-A: Yes! Implement `BaseSearchProvider`, `BaseLLMProvider`, or `BaseBibtexExtractor`.
-
-**Q: Does it work offline?**
-A: No, requires internet for search, download, and LLM API calls.
-
-**More questions?** Check the [full FAQ](https://github.com/joseluissaorin/scholaris/wiki/FAQ) or [open an issue](https://github.com/joseluissaorin/scholaris/issues).
-
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/improvement`)
-3. Make your changes with tests
-4. Run the test suite (`pytest`)
-5. Submit a pull request
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
-## License
-
-MIT License - Copyright (c) 2026 José Luis Saorín Ferrer
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-## Citation
-
-If you use Scholaris in your research, please cite:
-
-```bibtex
-@software{scholaris2026,
-  title={Scholaris: Academic Research Automation Library for Python},
-  author={Saor\'{i}n Ferrer, Jos\'{e} Luis},
-  year={2026},
-  url={https://github.com/joseluissaorin/scholaris},
-  version={1.0.0}
-}
+If Scholaris saves you time in your research:
+- ⭐ Star this repository
+- 📣 Share with colleagues
+- 🐛 Report bugs and suggest features
+- 💡 Contribute code (see [CONTRIBUTING.md](CONTRIBUTING.md))
 ```
 
-## Links
+---
 
-- [Documentation](https://github.com/joseluissaorin/scholaris/wiki)
-- [Issue Tracker](https://github.com/joseluissaorin/scholaris/issues)
-- [Changelog](CHANGELOG.md)
+## Summary of Proposed Changes
 
-## Acknowledgments
+### Critical (Must-Have)
+1. ✅ Add badges and project status
+2. ✅ Comparison table in overview
+3. ✅ Complete prerequisites section
+4. ✅ Restructure Quick Start for 3 personas
+5. ✅ Add comprehensive troubleshooting
+6. ✅ Expand configuration documentation
+7. ✅ Add real-world use cases
+8. ✅ Complete API reference
+9. ✅ Performance & limitations section
+10. ✅ Security & ethics section
 
-Scholaris builds upon excellent open-source tools:
-- PyPaperBot - Google Scholar integration
-- pdf2bib - PDF metadata extraction
-- Google Gemini - AI language model
-- python-docx - Word document generation
+### Medium Priority
+11. ✅ Enhanced architecture diagram
+12. ✅ Comparison with alternatives
+13. ✅ Link to examples directory
+14. ✅ Quick FAQ section
+15. ✅ Expanded testing section
+
+### Nice-to-Have
+16. Visual demo (GIF/video)
+17. Changelog link
+18. Support/sponsor section
+
+---
+
+## Implementation Plan
+
+**Phase 1: Critical Fixes (1-2 hours)**
+- Add badges
+- Restructure Quick Start
+- Add troubleshooting
+
+**Phase 2: Documentation Depth (2-3 hours)**
+- Complete API reference
+- Add use cases
+- Performance section
+
+**Phase 3: Polish (1 hour)**
+- Comparison table
+- FAQ
+- Architecture diagram
+
+**Total Estimated Time:** 4-6 hours
+
+---
+
+## Expected Impact
+
+**Before:** 7.5/10 README
+- Good coverage of basics
+- Missing advanced features
+- Limited troubleshooting
+
+**After:** 9.5/10 README
+- Complete feature showcase
+- Addresses all user personas
+- Comprehensive troubleshooting
+- Clear limitations and ethics
+- Production-ready documentation
+
+**Benefits:**
+- ⬆️ Reduced support questions (troubleshooting section)
+- ⬆️ Faster user onboarding (persona-based examples)
+- ⬆️ Better discoverability (comparison tables, use cases)
+- ⬆️ Increased trust (transparency about limitations)
+- ⬆️ Higher adoption (complete documentation)
