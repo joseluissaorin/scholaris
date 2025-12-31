@@ -25,6 +25,14 @@ from .pdf_processor import PDFProcessor
 from .formatters import format_citation
 from .citation_engine import GeminiCitationEngine
 
+# RAG engine (optional - only if ChromaDB installed)
+try:
+    from .rag_engine import RAGCitationEngine
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+    RAGCitationEngine = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -66,12 +74,25 @@ class CitationOrchestrator:
         )
         self.pdf_processor = PDFProcessor(page_offset_detector=page_offset_detector)
 
-        # Initialize Gemini citation engine
+        # Initialize Gemini citation engine (Full Context Mode)
         self.citation_engine = GeminiCitationEngine(api_key=gemini_api_key)
+
+        # Initialize RAG citation engine (for large bibliographies)
+        self.rag_engine = None
+        if use_rag_mode:
+            if RAG_AVAILABLE:
+                self.rag_engine = RAGCitationEngine(api_key=gemini_api_key)
+                logger.info("RAG engine initialized for large bibliographies")
+            else:
+                logger.warning(
+                    "RAG mode requested but ChromaDB not installed. "
+                    "Install with: pip install chromadb"
+                )
+                logger.warning("Falling back to Full Context Mode for all bibliographies")
 
         logger.info(
             f"CitationOrchestrator initialized: "
-            f"pdf_threshold={pdf_threshold}, rag_mode={use_rag_mode}"
+            f"pdf_threshold={pdf_threshold}, rag_mode={use_rag_mode and RAG_AVAILABLE}"
         )
 
     def insert_citations(
@@ -103,24 +124,46 @@ class CitationOrchestrator:
 
         warnings = []
 
-        # Step 1: Use Gemini to analyze and suggest citations
-        logger.info("Analyzing document with Gemini citation engine...")
+        # Step 1: Determine which engine to use (Full Context vs RAG)
+        num_papers = len(request.bibliography)
+        use_rag = (
+            self.use_rag_mode and
+            self.rag_engine is not None and
+            num_papers >= self.pdf_threshold
+        )
+
+        if use_rag:
+            logger.info(
+                f"Using RAG mode ({num_papers} papers >= {self.pdf_threshold} threshold)"
+            )
+            engine = self.rag_engine
+            mode_name = "RAG"
+        else:
+            logger.info(
+                f"Using Full Context mode ({num_papers} papers < {self.pdf_threshold} threshold)"
+            )
+            engine = self.citation_engine
+            mode_name = "Full Context"
+
+        # Step 2: Analyze document and suggest citations
+        logger.info(f"Analyzing document with {mode_name} engine...")
         try:
-            suggested_citations = self.citation_engine.analyze_and_cite(
+            suggested_citations = engine.analyze_and_cite(
                 document_text=request.document_text,
                 bibliography=request.bibliography,
                 style=request.style,
                 max_citations_per_claim=request.max_citations_per_claim,
             )
         except Exception as e:
-            logger.error(f"Gemini citation analysis failed: {e}")
+            logger.error(f"{mode_name} citation analysis failed: {e}")
             return CitationResult(
                 modified_document=request.document_text,
                 citations=[],
                 warnings=[f"Citation analysis failed: {str(e)}"],
+                metadata={'mode': mode_name, 'error': str(e)}
             )
 
-        # Step 2: Filter by confidence threshold
+        # Step 3: Filter by confidence threshold
         citations = [
             c for c in suggested_citations
             if c.confidence >= request.min_confidence
@@ -170,6 +213,9 @@ class CitationOrchestrator:
             preview_data=preview_data,
             warnings=warnings,
             metadata={
+                'mode': mode_name,
+                'num_papers': num_papers,
+                'threshold': self.pdf_threshold,
                 'total_suggested': len(suggested_citations),
                 'total_inserted': len(citations),
                 'confidence_threshold': request.min_confidence,
