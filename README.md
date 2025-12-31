@@ -55,7 +55,7 @@ pip install scholaris[all]
 ### From Source
 
 ```bash
-git clone https://github.com/jlsaorin/scholaris.git
+git clone https://github.com/joseluissaorin/scholaris.git
 cd scholaris
 pip install -e .
 
@@ -507,7 +507,7 @@ If you use Scholaris in your research, please cite:
   title={Scholaris: Academic Research Automation Library for Python},
   author={Saor\'{i}n Ferrer, Jos\'{e} Luis},
   year={2026},
-  url={https://github.com/jlsaorin/scholaris},
+  url={https://github.com/joseluissaorin/scholaris},
   version={1.0.0}
 }
 ```
@@ -515,8 +515,8 @@ If you use Scholaris in your research, please cite:
 ## Support
 
 For issues, questions, or suggestions:
-- **GitHub Issues:** https://github.com/jlsaorin/scholaris/issues
-- **Documentation:** https://github.com/jlsaorin/scholaris/wiki
+- **GitHub Issues:** https://github.com/joseluissaorin/scholaris/issues
+- **Documentation:** https://github.com/joseluissaorin/scholaris/wiki
 - **Email:** Contact via GitHub profile
 
 ## Acknowledgments

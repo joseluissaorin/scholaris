@@ -12,7 +12,7 @@ setup(
     description="A Python library for academic research automation with AI-powered literature review generation",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/jlsaorin/scholaris",
+    url="https://github.com/joseluissaorin/scholaris",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
