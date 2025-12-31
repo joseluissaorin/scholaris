@@ -24,14 +24,14 @@ class GeminiCitationEngine:
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-2.0-flash",
+        model: str = "gemini-3-flash-preview",
         max_context_tokens: int = 500000,
     ):
         """Initialize Gemini citation engine.
 
         Args:
             api_key: Google Gemini API key
-            model: Gemini model to use (default: gemini-2.0-flash)
+            model: Gemini model to use (default: gemini-3-flash-preview)
             max_context_tokens: Maximum tokens to use (~500k for safety)
         """
         self.api_key = api_key

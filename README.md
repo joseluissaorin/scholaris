@@ -83,8 +83,8 @@ result = orchestrator.insert_citations(request)
    - PDF fallback
 
 2. **AI Citation Matching** (Hybrid Mode):
-   - **Full Context Mode** (<50 papers): Loads entire bibliography into Gemini 2.0 Flash
-   - **RAG Mode** (50+ papers): Vector search with ChromaDB for scalability
+   - **Full Context Mode** (<50 papers): Loads entire bibliography into Gemini 3 Flash
+   - **RAG Mode** (50+ papers): Vector search with ChromaDB + gemini-embedding-001
    - Auto-switches based on bibliography size
    - Intelligently matches claims to sources
    - Extracts precise page numbers
@@ -439,7 +439,8 @@ scholar = Scholaris(config=config)
    ┌────▼───────────────────────▼──────┐
    │      Core Components               │
    │  • PyPaperBot (Search)             │
-   │  • Gemini 2.0 Flash (AI)           │
+   │  • Gemini 3 Flash (AI)             │
+   │  • gemini-embedding-001 (Vectors)  │
    │  • ChromaDB (Vector Store)         │
    │  • pdf2bib (BibTeX)                │
    │  • Page Offset Detection           │

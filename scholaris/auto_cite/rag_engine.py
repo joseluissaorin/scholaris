@@ -53,8 +53,8 @@ class RAGCitationEngine:
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-2.0-flash",
-        embedding_model: str = "models/text-embedding-004",
+        model: str = "gemini-3-flash-preview",
+        embedding_model: str = "models/gemini-embedding-001",
         chunk_size: int = 800,
         chunk_overlap: int = 100,
         top_k_chunks: int = 20,
@@ -64,8 +64,8 @@ class RAGCitationEngine:
 
         Args:
             api_key: Google Gemini API key
-            model: Gemini model for citation matching
-            embedding_model: Gemini embedding model
+            model: Gemini model for citation matching (default: gemini-3-flash-preview)
+            embedding_model: Gemini embedding model (default: gemini-embedding-001)
             chunk_size: Size of text chunks in tokens (approximate)
             chunk_overlap: Overlap between chunks in tokens
             top_k_chunks: Number of chunks to retrieve per claim
