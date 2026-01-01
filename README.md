@@ -586,14 +586,32 @@ for cit in citations:
 
 **Supported Extensions:** `.spdf`, `.scholaris`, `.scpdf`
 
-**File Contents:**
-| Component | Description | Size |
-|-----------|-------------|------|
-| Metadata | Citation key, authors, year, title, hashes | ~1 KB |
-| OCR Pages | Full text with verified page numbers | ~10 KB/page |
-| Chunks | Text chunks for embedding search | ~5 KB/page |
-| Embeddings | 768-dim vectors for each chunk | ~3 KB/chunk |
-| Previews | Low-res JPEG thumbnails (optional) | ~30 KB/page |
+**File Format:** Gzip-compressed SQLite database (single portable file)
+
+**Complete .spdf Contents:**
+
+| Table | Fields | Description |
+|-------|--------|-------------|
+| **metadata** | `citation_key`, `authors`, `year`, `title` | Source identification |
+| | `source_pdf_hash`, `source_pdf_filename` | Original PDF verification |
+| | `processed_at`, `ocr_model`, `embedding_model` | Processing info |
+| | `embedding_dim`, `schema_version` | Technical specs |
+| | `total_pages`, `total_chunks` | Counts |
+| **pages** | `id`, `pdf_page`, `book_page` | Page mapping |
+| | `text`, `confidence` | OCR content |
+| | `is_landscape_half` | Double-page scan detection |
+| **chunks** | `id`, `page_id`, `chunk_index` | Chunk identification |
+| | `text`, `book_page`, `pdf_page` | Content with verified pages |
+| **embeddings** | `chunk_id`, `vector` (BLOB) | 768-dim float32 vectors |
+| **previews** | `pdf_page`, `thumbnail` (BLOB) | JPEG images |
+| | `width`, `height` | Dimensions |
+
+**Size Estimates:**
+| Content | Size |
+|---------|------|
+| 30-page book section | ~3 MB |
+| 200-page full book | ~15 MB |
+| 15-page journal article | ~1.5 MB |
 
 **Recovery Features:**
 ```python
