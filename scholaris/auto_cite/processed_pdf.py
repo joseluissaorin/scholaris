@@ -194,31 +194,18 @@ class ProcessedPDF:
         pages_to_process = list(range(start_page, end_page))
         logger.info(f"Processing pages {start_page + 1} to {end_page} of {total_pdf_pages}")
 
-        # Step 1: Vision OCR
-        logger.info("Step 1: Running Vision OCR...")
+        # Step 1: Vision OCR (PRIMARY method - guarantees page numbers)
+        logger.info("Step 1: Vision OCR with parallel processing...")
         ocr_processor = VisionOCRProcessor(gemini_api_key)
 
-        ocr_pages = []
+        # Generate previews first (before closing doc)
         previews = []
-
-        for pdf_page_idx in pages_to_process:
-            page = doc[pdf_page_idx]
-
-            # Render for OCR (150 DPI)
-            mat_ocr = fitz.Matrix(150/72, 150/72)
-            pix_ocr = page.get_pixmap(matrix=mat_ocr)
-            image_bytes_ocr = pix_ocr.tobytes("png")
-
-            # OCR the page
-            page_results = ocr_processor._ocr_page(image_bytes_ocr, pdf_page_idx + 1)
-            ocr_pages.extend(page_results)
-
-            # Generate preview if requested
-            if include_previews:
+        if include_previews:
+            logger.info("  Generating previews...")
+            for pdf_page_idx in pages_to_process:
+                page = doc[pdf_page_idx]
                 mat_preview = fitz.Matrix(preview_dpi/72, preview_dpi/72)
                 pix_preview = page.get_pixmap(matrix=mat_preview)
-
-                # Convert to JPEG
                 jpeg_bytes = pix_preview.tobytes("jpeg", jpg_quality=preview_quality)
 
                 previews.append(SPDFPreview(
@@ -227,13 +214,32 @@ class ProcessedPDF:
                     width=pix_preview.width,
                     height=pix_preview.height,
                 ))
-
-            if (pdf_page_idx - start_page + 1) % 10 == 0:
-                logger.info(f"  Processed {pdf_page_idx - start_page + 1}/{len(pages_to_process)} pages")
+            logger.info(f"  Generated {len(previews)} previews")
 
         doc.close()
 
-        logger.info(f"  OCR complete: {len(ocr_pages)} pages extracted")
+        # Run Vision OCR with parallel processing (5 workers)
+        try:
+            ocr_pages = ocr_processor.process_pdf(
+                str(pdf_path),
+                start_page=start_page,
+                end_page=end_page,
+            )
+            extraction_mode = "vision_ocr"
+            logger.info(f"  Vision OCR complete: {len(ocr_pages)} pages")
+
+        except Exception as e:
+            # Fallback to text layer if Vision OCR fails completely
+            logger.warning(f"  Vision OCR failed: {e}")
+            logger.info("  Falling back to text layer extraction...")
+
+            ocr_pages = ocr_processor.extract_text_layer(
+                str(pdf_path),
+                start_page=start_page,
+                end_page=end_page,
+            )
+            extraction_mode = "text_layer_fallback"
+            logger.info(f"  Text layer extraction complete: {len(ocr_pages)} pages")
 
         # Convert OCR pages to SPDFPage objects
         for idx, ocr_page in enumerate(ocr_pages):
@@ -287,7 +293,7 @@ class ProcessedPDF:
             source_pdf_hash=source_hash,
             source_pdf_filename=pdf_path.name,
             processed_at=datetime.now().isoformat(),
-            ocr_model="gemini-2.0-flash-lite",
+            ocr_model=extraction_mode,  # "text_layer" or "vision_ocr"
             embedding_model="gemini-embedding-exp-03-07",
             embedding_dim=embedding_dim,
             schema_version=SCHEMA_VERSION,

@@ -90,6 +90,9 @@ class SPDFValidator:
     # Required tables
     REQUIRED_TABLES = ["metadata", "pages", "chunks", "embeddings", "previews"]
 
+    # FTS5 virtual table (required for full-text search)
+    FTS5_TABLE = "chunks_fts"
+
     # Required metadata keys
     REQUIRED_METADATA = [
         "citation_key",
@@ -206,6 +209,14 @@ class SPDFValidator:
                         message=f"Missing required table: {table}",
                         severity=ValidationSeverity.ERROR
                     ))
+
+            # Check FTS5 virtual table exists
+            if self.FTS5_TABLE not in tables:
+                errors.append(ValidationError(
+                    code="MISSING_FTS5",
+                    message=f"Missing FTS5 full-text search index: {self.FTS5_TABLE}",
+                    severity=ValidationSeverity.WARNING  # Warning for backward compat
+                ))
 
             if any(e.severity == ValidationSeverity.ERROR for e in errors):
                 conn.close()

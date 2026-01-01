@@ -97,6 +97,29 @@ CREATE TABLE previews (
 
 CREATE INDEX idx_chunks_book_page ON chunks(book_page);
 CREATE INDEX idx_pages_pdf_page ON pages(pdf_page);
+
+-- FTS5 Full-Text Search index on chunks
+-- Uses Porter stemming and Unicode tokenization for better search
+CREATE VIRTUAL TABLE chunks_fts USING fts5(
+    text,
+    content='chunks',
+    content_rowid='id',
+    tokenize='porter unicode61 remove_diacritics 1'
+);
+
+-- Triggers to keep FTS index synchronized with chunks table
+CREATE TRIGGER chunks_fts_insert AFTER INSERT ON chunks BEGIN
+    INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+END;
+
+CREATE TRIGGER chunks_fts_delete AFTER DELETE ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+END;
+
+CREATE TRIGGER chunks_fts_update AFTER UPDATE ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+END;
 """
 
 # SQL schema v1.1 additions (model checkpoint support)

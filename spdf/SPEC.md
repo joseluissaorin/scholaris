@@ -15,7 +15,8 @@ SPDF (Scholaris Processed Document Format) is a portable, self-contained file fo
 3. **Self-contained** — Contains everything needed for citation matching
 4. **Recoverable** — Optional page previews for reconstruction
 5. **Verifiable** — Source PDF hash for integrity checking
-6. **Reproducible** (v1.1) — Optional embedded model checkpoint for permanent reproducibility
+6. **Searchable** — FTS5 full-text search with BM25 ranking built-in
+7. **Reproducible** (v1.1) — Optional embedded model checkpoint for permanent reproducibility
 
 ### File Extensions
 
@@ -41,6 +42,7 @@ An SPDF file is a **gzip-compressed SQLite database**.
 │  │  │  │   metadata         │  │  │  │
 │  │  │  │   pages            │  │  │  │
 │  │  │  │   chunks           │  │  │  │
+│  │  │  │   chunks_fts (FTS5)│  │  │  │
 │  │  │  │   embeddings       │  │  │  │
 │  │  │  │   previews         │  │  │  │
 │  │  │  │   model_checkpoint │  │  │  │
@@ -130,6 +132,84 @@ CREATE INDEX idx_chunks_book_page ON chunks(book_page);
 - Default chunk size: 500 characters
 - Default overlap: 100 characters
 - Chunks break at sentence boundaries when possible
+
+### Virtual Table: `chunks_fts`
+
+FTS5 full-text search index for fast keyword search.
+
+```sql
+CREATE VIRTUAL TABLE chunks_fts USING fts5(
+    text,                                   -- Indexed text content
+    content='chunks',                       -- Shadow table (contentless FTS)
+    content_rowid='id',                     -- Maps to chunks.id
+    tokenize='porter unicode61 remove_diacritics 1'  -- Porter stemming + Unicode
+);
+
+-- Synchronization triggers
+CREATE TRIGGER chunks_fts_insert AFTER INSERT ON chunks BEGIN
+    INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+END;
+
+CREATE TRIGGER chunks_fts_delete AFTER DELETE ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+END;
+
+CREATE TRIGGER chunks_fts_update AFTER UPDATE ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+END;
+```
+
+**FTS5 Features:**
+
+- **BM25 Ranking**: Results ranked by relevance
+- **Porter Stemming**: Matches word variants (e.g., "running" matches "run")
+- **Unicode Support**: Full Unicode text handling with diacritics removal
+- **Query Syntax**:
+  - Simple terms: `machine learning`
+  - Phrases: `"neural network"`
+  - Boolean: `deep AND learning`, `NOT supervised`
+  - Prefix: `optim*` (matches "optimize", "optimization")
+  - NEAR: `NEAR(word1 word2, 5)` (within 5 words)
+
+**Searching (Python):**
+```python
+# Basic search with BM25 ranking
+cursor.execute("""
+    SELECT c.*, bm25(chunks_fts) as score
+    FROM chunks_fts
+    JOIN chunks c ON chunks_fts.rowid = c.id
+    WHERE chunks_fts MATCH 'machine learning'
+    ORDER BY score
+    LIMIT 10
+""")
+
+# With snippet extraction
+cursor.execute("""
+    SELECT c.*, snippet(chunks_fts, 0, '<b>', '</b>', '...', 64) as snippet
+    FROM chunks_fts
+    JOIN chunks c ON chunks_fts.rowid = c.id
+    WHERE chunks_fts MATCH 'neural networks'
+""")
+```
+
+**Hybrid Search (FTS5 + Vector):**
+
+Combine keyword and semantic search for better results:
+
+```python
+# 1. Get FTS candidates
+fts_results = search_fts(query_text, limit=30)
+
+# 2. Re-rank with vector similarity
+for result in fts_results:
+    embedding = get_embedding(result.chunk_id)
+    cosine_sim = dot(query_embedding, embedding)
+    result.hybrid_score = 0.3 * result.fts_score + 0.7 * cosine_sim
+
+# 3. Return top results
+return sorted(fts_results, key=lambda x: x.hybrid_score)[:10]
+```
 
 ### Table: `embeddings`
 

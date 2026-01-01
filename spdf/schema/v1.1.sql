@@ -40,6 +40,29 @@ CREATE TABLE chunks (
 CREATE INDEX idx_chunks_book_page ON chunks(book_page);
 CREATE INDEX idx_chunks_page_id ON chunks(page_id);
 
+-- FTS5 Full-Text Search index on chunks
+-- Enables fast keyword search with BM25 ranking
+CREATE VIRTUAL TABLE chunks_fts USING fts5(
+    text,                                   -- Indexed text content
+    content='chunks',                       -- Shadow table (contentless FTS)
+    content_rowid='id',                     -- Maps to chunks.id
+    tokenize='porter unicode61 remove_diacritics 1'  -- Porter stemming + Unicode
+);
+
+-- Triggers to keep FTS index synchronized
+CREATE TRIGGER chunks_fts_insert AFTER INSERT ON chunks BEGIN
+    INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+END;
+
+CREATE TRIGGER chunks_fts_delete AFTER DELETE ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+END;
+
+CREATE TRIGGER chunks_fts_update AFTER UPDATE ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+END;
+
 CREATE TABLE embeddings (
     chunk_id INTEGER PRIMARY KEY,
     vector BLOB NOT NULL,

@@ -81,6 +81,17 @@ class EmbeddingV2:
 
 
 @dataclass
+class SearchResult:
+    """Result from FTS5 full-text search."""
+    chunk_id: int
+    text: str
+    book_page: int
+    pdf_page: int
+    score: float  # BM25 score (lower is better match)
+    snippet: Optional[str] = None  # Highlighted snippet if requested
+
+
+@dataclass
 class SPDFData:
     """Container for SPDF file contents."""
     metadata: Dict[str, str]
@@ -387,6 +398,230 @@ class SPDFReader:
             info["embedding_source"] = metadata.get('embedding_source', 'unknown')
 
         return info
+
+    def search(
+        self,
+        path: Union[str, Path],
+        query: str,
+        limit: int = 10,
+        snippet_tokens: int = 64,
+    ) -> List[SearchResult]:
+        """Search for text using FTS5 full-text search.
+
+        Uses BM25 ranking for relevance scoring. Supports FTS5 query syntax:
+        - Simple terms: "machine learning"
+        - Phrases: '"neural network"'
+        - Boolean: "deep AND learning"
+        - Prefix: "optim*"
+        - NEAR: "NEAR(word1 word2, 5)"
+
+        Args:
+            path: Path to .spdf file
+            query: FTS5 search query
+            limit: Maximum results to return
+            snippet_tokens: Tokens in each snippet (0 to disable snippets)
+
+        Returns:
+            List of SearchResult objects sorted by relevance
+        """
+        path = Path(path)
+
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {path}")
+
+        with gzip.open(path, 'rb') as f:
+            db_bytes = f.read()
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp.write(db_bytes)
+            tmp_path = tmp.name
+
+        try:
+            conn = sqlite3.connect(tmp_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # Check if FTS5 table exists
+            if not self._table_exists(cursor, "chunks_fts"):
+                conn.close()
+                raise ValueError("FTS5 index not found. File may be from older SPDF version.")
+
+            # Build query with optional snippets
+            if snippet_tokens > 0:
+                sql = """
+                    SELECT
+                        c.id as chunk_id,
+                        c.text,
+                        c.book_page,
+                        c.pdf_page,
+                        bm25(chunks_fts) as score,
+                        snippet(chunks_fts, 0, '<b>', '</b>', '...', ?) as snippet
+                    FROM chunks_fts
+                    JOIN chunks c ON chunks_fts.rowid = c.id
+                    WHERE chunks_fts MATCH ?
+                    ORDER BY score
+                    LIMIT ?
+                """
+                cursor.execute(sql, (snippet_tokens, query, limit))
+            else:
+                sql = """
+                    SELECT
+                        c.id as chunk_id,
+                        c.text,
+                        c.book_page,
+                        c.pdf_page,
+                        bm25(chunks_fts) as score
+                    FROM chunks_fts
+                    JOIN chunks c ON chunks_fts.rowid = c.id
+                    WHERE chunks_fts MATCH ?
+                    ORDER BY score
+                    LIMIT ?
+                """
+                cursor.execute(sql, (query, limit))
+
+            results = []
+            for row in cursor.fetchall():
+                results.append(SearchResult(
+                    chunk_id=row["chunk_id"],
+                    text=row["text"],
+                    book_page=row["book_page"],
+                    pdf_page=row["pdf_page"],
+                    score=row["score"],
+                    snippet=row["snippet"] if snippet_tokens > 0 else None,
+                ))
+
+            conn.close()
+            return results
+
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+    def search_hybrid(
+        self,
+        path: Union[str, Path],
+        query: str,
+        query_embedding: np.ndarray,
+        limit: int = 10,
+        fts_weight: float = 0.3,
+        vector_weight: float = 0.7,
+    ) -> List[SearchResult]:
+        """Hybrid search combining FTS5 and vector similarity.
+
+        Retrieves candidates using FTS5, then re-ranks using vector similarity.
+        This combines keyword matching with semantic understanding.
+
+        Args:
+            path: Path to .spdf file
+            query: FTS5 search query for initial retrieval
+            query_embedding: Query vector for re-ranking
+            limit: Maximum results to return
+            fts_weight: Weight for FTS5 BM25 score (0-1)
+            vector_weight: Weight for vector similarity (0-1)
+
+        Returns:
+            List of SearchResult objects with combined scores
+        """
+        path = Path(path)
+
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {path}")
+
+        # Get more FTS candidates than final limit for re-ranking
+        fts_limit = min(limit * 3, 100)
+
+        with gzip.open(path, 'rb') as f:
+            db_bytes = f.read()
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp.write(db_bytes)
+            tmp_path = tmp.name
+
+        try:
+            conn = sqlite3.connect(tmp_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # Get FTS candidates
+            cursor.execute("""
+                SELECT
+                    c.id as chunk_id,
+                    c.text,
+                    c.book_page,
+                    c.pdf_page,
+                    bm25(chunks_fts) as fts_score
+                FROM chunks_fts
+                JOIN chunks c ON chunks_fts.rowid = c.id
+                WHERE chunks_fts MATCH ?
+                ORDER BY fts_score
+                LIMIT ?
+            """, (query, fts_limit))
+
+            candidates = []
+            chunk_ids = []
+            for row in cursor.fetchall():
+                candidates.append({
+                    "chunk_id": row["chunk_id"],
+                    "text": row["text"],
+                    "book_page": row["book_page"],
+                    "pdf_page": row["pdf_page"],
+                    "fts_score": row["fts_score"],
+                })
+                chunk_ids.append(row["chunk_id"])
+
+            if not candidates:
+                conn.close()
+                return []
+
+            # Get embeddings for candidates
+            placeholders = ",".join("?" * len(chunk_ids))
+            cursor.execute(f"""
+                SELECT chunk_id, vector FROM embeddings
+                WHERE chunk_id IN ({placeholders})
+            """, chunk_ids)
+
+            embeddings_map = {}
+            for row in cursor.fetchall():
+                embeddings_map[row["chunk_id"]] = np.frombuffer(row["vector"], dtype=np.float32)
+
+            conn.close()
+
+            # Normalize query embedding
+            query_norm = query_embedding / np.linalg.norm(query_embedding)
+
+            # Compute hybrid scores
+            results = []
+            for cand in candidates:
+                chunk_id = cand["chunk_id"]
+                if chunk_id not in embeddings_map:
+                    continue
+
+                # Cosine similarity (higher is better, so negate for sorting)
+                emb = embeddings_map[chunk_id]
+                emb_norm = emb / np.linalg.norm(emb)
+                cosine_sim = np.dot(query_norm, emb_norm)
+
+                # Normalize FTS score (BM25 is negative, more negative = better)
+                # Convert to 0-1 range where higher is better
+                fts_normalized = 1.0 / (1.0 + abs(cand["fts_score"]))
+
+                # Combined score (higher is better)
+                hybrid_score = (fts_weight * fts_normalized) + (vector_weight * cosine_sim)
+
+                # Negate for sorting (we want highest scores first but store negative for consistency)
+                results.append(SearchResult(
+                    chunk_id=chunk_id,
+                    text=cand["text"],
+                    book_page=cand["book_page"],
+                    pdf_page=cand["pdf_page"],
+                    score=-hybrid_score,  # Negative so lower = better (consistent with BM25)
+                ))
+
+            # Sort by score (lower is better)
+            results.sort(key=lambda x: x.score)
+            return results[:limit]
+
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
 
 
 def read_spdf(path: Union[str, Path]) -> SPDFData:

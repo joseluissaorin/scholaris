@@ -7,8 +7,10 @@ Persists to disk for reuse across sessions.
 
 import hashlib
 import json
+import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
@@ -18,9 +20,16 @@ import google.generativeai as genai
 
 from .models import OCRPage, PageChunk, RetrievedChunk
 
+logger = logging.getLogger(__name__)
+
 
 class GeminiEmbedder:
-    """Embedding generator using Gemini embedding model."""
+    """Embedding generator using Gemini embedding model with rate limiting."""
+
+    # Rate limit: 3000 embeddings per minute = 50 per second
+    # We'll be conservative and do 40 per second max
+    MAX_PER_MINUTE = 2500
+    BATCH_DELAY = 1.5  # Seconds between batches
 
     def __init__(self, api_key: str, model_name: str = "gemini-embedding-001"):
         """Initialize Gemini embedder.
@@ -64,29 +73,69 @@ class GeminiEmbedder:
         )
         return result["embedding"]
 
-    def embed_batch(self, texts: List[str], batch_size: int = 100) -> List[List[float]]:
-        """Generate embeddings for multiple texts.
+    def embed_batch(
+        self,
+        texts: List[str],
+        batch_size: int = 100,
+        max_retries: int = 3,
+    ) -> List[List[float]]:
+        """Generate embeddings for multiple texts with rate limiting.
 
         Args:
             texts: List of texts to embed
             batch_size: Number of texts per batch
+            max_retries: Maximum retries on rate limit errors
 
         Returns:
             List of embedding vectors
         """
         embeddings = []
-        for i in range(0, len(texts), batch_size):
+        total_batches = (len(texts) + batch_size - 1) // batch_size
+
+        for batch_idx, i in enumerate(range(0, len(texts), batch_size)):
             batch = texts[i:i + batch_size]
-            result = genai.embed_content(
-                model=self.model_name,
-                content=batch,
-                task_type="retrieval_document",
-            )
-            # Handle both single and batch responses
-            if isinstance(result["embedding"][0], list):
-                embeddings.extend(result["embedding"])
-            else:
-                embeddings.append(result["embedding"])
+
+            # Retry logic for rate limits
+            for attempt in range(max_retries):
+                try:
+                    result = genai.embed_content(
+                        model=self.model_name,
+                        content=batch,
+                        task_type="retrieval_document",
+                    )
+                    # Handle both single and batch responses
+                    if isinstance(result["embedding"][0], list):
+                        embeddings.extend(result["embedding"])
+                    else:
+                        embeddings.append(result["embedding"])
+
+                    # Rate limiting: pause between batches
+                    if batch_idx < total_batches - 1:
+                        time.sleep(self.BATCH_DELAY)
+                    break
+
+                except Exception as e:
+                    error_msg = str(e)
+                    if "429" in error_msg or "quota" in error_msg.lower():
+                        # Rate limit hit - extract retry delay if available
+                        retry_delay = 60  # Default to 60 seconds
+                        if "retry in" in error_msg.lower():
+                            import re
+                            match = re.search(r"retry in (\d+(?:\.\d+)?)", error_msg.lower())
+                            if match:
+                                retry_delay = float(match.group(1)) + 5  # Add buffer
+
+                        if attempt < max_retries - 1:
+                            logger.warning(
+                                f"Rate limit hit, waiting {retry_delay:.0f}s before retry "
+                                f"(attempt {attempt + 1}/{max_retries})"
+                            )
+                            time.sleep(retry_delay)
+                        else:
+                            raise
+                    else:
+                        raise
+
         return embeddings
 
 

@@ -12,7 +12,7 @@ v1.1 adds support for:
 - Multi-model embedding storage (embeddings_v2 table)
 """
 
-from .reader import SPDFReader, SPDFData, ModelCheckpoint, EmbeddingV2, read_spdf
+from .reader import SPDFReader, SPDFData, ModelCheckpoint, EmbeddingV2, SearchResult, read_spdf
 from .writer import SPDFWriter, write_spdf
 
 __all__ = [
@@ -23,6 +23,7 @@ __all__ = [
     "SPDFData",
     "ModelCheckpoint",
     "EmbeddingV2",
+    "SearchResult",
     # Convenience functions
     "read_spdf",
     "write_spdf",
