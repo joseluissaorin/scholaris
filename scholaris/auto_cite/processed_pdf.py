@@ -53,6 +53,13 @@ class SPDFMetadata:
     schema_version: int = SCHEMA_VERSION
     total_pages: int = 0
     total_chunks: int = 0
+    # Extended bibliographic fields (added in v1.1)
+    source: str = ""  # Journal, conference, or publisher name
+    volume: str = ""  # Volume number
+    issue: str = ""   # Issue number
+    pages: str = ""   # Page range (e.g., "1-34")
+    doi: str = ""     # Digital Object Identifier
+    url: str = ""     # URL if available
 
 
 @dataclass

@@ -707,6 +707,49 @@ class CitationIndex:
 
         # Build metadata
         used_sources = set(c.citation_key for c in citations)
+
+        # Detect orphan references (in bibliography but never cited)
+        all_sources = set(self._sources.keys())
+        orphan_references = sorted(all_sources - used_sources)
+        if orphan_references:
+            warnings.append(
+                f"Orphan references (in bibliography but never cited): {', '.join(orphan_references)}"
+            )
+
+        # Detect missing references (mentioned in text but not in sources)
+        # Look for patterns like (Author, Year) or Author (Year) that don't match our sources
+        import re
+        potential_citations = set()
+        # Match patterns like (Author, 2023) or (Author & Other, 2023) or Author (2023)
+        patterns = [
+            r'\(([A-Z][a-zé]+(?:\s+(?:&|y|and)\s+[A-Z][a-zé]+)?),?\s*((?:19|20)\d{2})[^)]*\)',  # (Author, 2023)
+            r'([A-Z][a-zé]+(?:\s+(?:&|y|and)\s+[A-Z][a-zé]+)?)\s+\(((?:19|20)\d{2})\)',  # Author (2023)
+        ]
+        doc_lower = document_text.lower()
+        for pattern in patterns:
+            for match in re.finditer(pattern, document_text, re.IGNORECASE):
+                author_part = match.group(1).lower().strip()
+                year_part = match.group(2)
+                # Check if any source matches this author/year
+                found = False
+                for key, source in self._sources.items():
+                    meta = source.processed_pdf.metadata
+                    if meta.year and str(meta.year) == year_part:
+                        # Check if author matches
+                        for author in meta.authors:
+                            if author_part in author.lower() or author.lower().split()[-1] in author_part:
+                                found = True
+                                break
+                    if found:
+                        break
+                if not found:
+                    potential_citations.add(f"{match.group(1)} ({year_part})")
+
+        if potential_citations:
+            warnings.append(
+                f"Potential missing references (cited but not in bibliography): {', '.join(sorted(potential_citations)[:5])}"
+            )
+
         metadata = {
             "total_citations": len(citations),
             "unique_sources": len(used_sources),
@@ -715,6 +758,8 @@ class CitationIndex:
             "failed_insertions": insertion_stats.get("failed_insertions", 0),
             "framework_rewrites": insertion_stats.get("framework_rewrites", 0),
             "temporal_warnings": insertion_stats.get("temporal_warnings", 0),
+            "orphan_references": orphan_references,
+            "potential_missing_references": list(potential_citations)[:10],
             "style": style.value,
             "min_confidence": min_confidence,
             "bibliography": bibliography,
@@ -993,7 +1038,30 @@ class CitationIndex:
         title = meta.title or "Untitled"
         title_sentence_case = self._to_sentence_case(title)
 
-        return f"{author_str} ({year}). *{title_sentence_case}*."
+        # Build reference with available fields
+        ref_parts = [f"{author_str} ({year}). *{title_sentence_case}*."]
+
+        # Add source (journal/conference/publisher) if available
+        source = getattr(meta, 'source', '') or ''
+        volume = getattr(meta, 'volume', '') or ''
+        issue = getattr(meta, 'issue', '') or ''
+        pages = getattr(meta, 'pages', '') or ''
+        doi = getattr(meta, 'doi', '') or ''
+
+        if source:
+            source_part = f"*{source}*"
+            if volume:
+                source_part += f", *{volume}*"
+                if issue:
+                    source_part += f"({issue})"
+            if pages:
+                source_part += f", {pages}"
+            ref_parts.append(source_part + ".")
+
+        if doi:
+            ref_parts.append(f"https://doi.org/{doi}")
+
+        return " ".join(ref_parts)
 
     def _to_sentence_case(self, title: str) -> str:
         """Convert title to sentence case (APA style).

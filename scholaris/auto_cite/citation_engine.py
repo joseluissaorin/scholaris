@@ -72,8 +72,8 @@ class GeminiCitationEngine:
         - For 3+ authors, use "et al." after first author
 
         Handles special cases:
-        - "van Dijk" → "van Dijk" (keep particle)
-        - "de Beaugrande" → "de Beaugrande" (keep particle)
+        - "Teun A. van Dijk" → "van Dijk" (keep particle)
+        - "Robert-Alain de Beaugrande" → "de Beaugrande" (keep particle)
 
         Args:
             authors_str: Comma-separated full names (e.g., "M.A.K. Halliday, Ruqaiya Hasan")
@@ -87,8 +87,8 @@ class GeminiCitationEngine:
         # Split by comma
         authors = [a.strip() for a in authors_str.split(",")]
 
-        # Particles that should stay with the surname
-        particles = {"van", "von", "de", "del", "della", "di", "da", "le", "la", "el"}
+        # Particles that should stay with the surname (lowercase)
+        particles = {"van", "von", "de", "del", "della", "di", "da", "le", "la", "el", "den", "ter"}
 
         surnames = []
         for author in authors:
@@ -96,24 +96,21 @@ class GeminiCitationEngine:
             if not parts:
                 continue
 
-            # Check for particles (van, de, etc.)
+            # Find surname with particles
+            # Strategy: work backwards from end, collecting surname + any particles before it
             surname_parts = []
-            found_particle = False
 
-            # Work backwards to find surname
-            for i in range(len(parts) - 1, -1, -1):
+            # Last word is always the main surname
+            surname_parts.append(parts[-1])
+
+            # Check preceding words for particles
+            for i in range(len(parts) - 2, -1, -1):
                 word = parts[i]
-                # If it's a particle or we haven't found the main surname yet
                 if word.lower() in particles:
-                    surname_parts.insert(0, word.lower())  # Keep lowercase for particles
-                    found_particle = True
-                elif not surname_parts or found_particle:
-                    # This is the main surname
-                    surname_parts.insert(0, word)
-                    if not found_particle:
-                        break  # Only take last word if no particle
-                    found_particle = False
+                    # Keep particle lowercase as per APA
+                    surname_parts.insert(0, word.lower())
                 else:
+                    # Stop when we hit a non-particle (given name, initial, etc.)
                     break
 
             if surname_parts:
@@ -130,6 +127,105 @@ class GeminiCitationEngine:
         else:
             # 3+ authors: first author et al.
             return f"{surnames[0]} et al."
+
+    def _disambiguate_authors(self, citations: List["GroundedCitation"], style: CitationStyle) -> List["GroundedCitation"]:
+        """Add author initials when multiple authors share the same surname.
+
+        APA7 requires disambiguation when different first-authors share surnames:
+        - Clark (2019) and Clark (2022) by different authors become:
+        - K. Clark et al. (2019) and J. H. Clark et al. (2022)
+
+        Args:
+            citations: List of GroundedCitation objects
+            style: Citation style
+
+        Returns:
+            Updated citations with disambiguated author names
+        """
+        from collections import defaultdict
+
+        # Build mapping: surname -> list of (citation_key, year, full_authors)
+        surname_to_sources = defaultdict(list)
+
+        for c in citations:
+            if not c.authors:
+                continue
+
+            # Get first author surname
+            first_author = c.authors.split(",")[0].strip()
+            parts = first_author.split()
+            if not parts:
+                continue
+
+            # Extract surname (last word + any particles)
+            particles = {"van", "von", "de", "del", "della", "di", "da", "le", "la", "el", "den", "ter"}
+            surname_parts = [parts[-1]]
+            for i in range(len(parts) - 2, -1, -1):
+                if parts[i].lower() in particles:
+                    surname_parts.insert(0, parts[i].lower())
+                else:
+                    break
+            surname = " ".join(surname_parts)
+
+            # Track this source under the surname
+            source_key = (c.citation_key, c.year)
+            if source_key not in [s[0] for s in surname_to_sources[surname]]:
+                surname_to_sources[surname].append((source_key, first_author, c.authors))
+
+        # Find surnames that need disambiguation (multiple different first-authors)
+        needs_disambiguation = {}
+        for surname, sources in surname_to_sources.items():
+            # Check if multiple DIFFERENT first authors
+            unique_first_authors = set(s[1] for s in sources)
+            if len(unique_first_authors) > 1:
+                # Build disambiguation map: citation_key -> initial to use
+                for source_key, first_author, full_authors in sources:
+                    parts = first_author.split()
+                    if len(parts) >= 2:
+                        # Get initial(s) from given name(s)
+                        initials = []
+                        for i in range(len(parts) - 1):
+                            word = parts[i]
+                            if word.lower() not in particles:
+                                if "." in word:
+                                    initials.append(word)  # Already an initial like "K."
+                                else:
+                                    initials.append(word[0] + ".")
+                        initial_str = " ".join(initials) if initials else parts[0][0] + "."
+                        needs_disambiguation[source_key] = (initial_str, surname)
+
+        # Update citation strings for sources that need disambiguation
+        if needs_disambiguation:
+            logger.info(f"Disambiguating {len(needs_disambiguation)} author references")
+
+            for c in citations:
+                source_key = (c.citation_key, c.year)
+                if source_key in needs_disambiguation:
+                    initial_str, surname = needs_disambiguation[source_key]
+
+                    # Parse current citation string and rebuild with initials
+                    # Format: (Author, Year, p. X) or (Author et al., Year, p. X)
+                    old_author = self._format_authors_apa7(c.authors) if c.authors else "Unknown"
+
+                    # Check if et al.
+                    if " et al." in old_author:
+                        new_author = f"{initial_str} {surname} et al."
+                    elif " & " in old_author:
+                        # Two authors - only disambiguate first
+                        parts = old_author.split(" & ")
+                        new_author = f"{initial_str} {parts[0]} & {parts[1]}"
+                    else:
+                        new_author = f"{initial_str} {surname}"
+
+                    # Rebuild citation string
+                    if style == CitationStyle.APA7:
+                        if c.page_end and c.page_end != c.page_number:
+                            c.citation_string = f"({new_author}, {c.year}, pp. {c.page_number}-{c.page_end})"
+                        else:
+                            c.citation_string = f"({new_author}, {c.year}, p. {c.page_number})"
+                    # Chicago handled separately if needed
+
+        return citations
 
     def _get_expanded_chunk_context(
         self,
@@ -937,6 +1033,10 @@ Total pages: {len(pdf.pages)}
                     all_citations.append(citation)
 
         logger.info(f"✓ Generated {len(all_citations)} grounded citations from {len(paragraphs)} paragraphs ({total_batches} batches parallel)")
+
+        # Disambiguate authors with same surnames (e.g., K. Clark vs J.H. Clark)
+        all_citations = self._disambiguate_authors(all_citations, style)
+
         return all_citations
 
     def _cite_paragraph_with_rag(
