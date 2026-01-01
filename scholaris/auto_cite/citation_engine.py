@@ -793,16 +793,33 @@ Total pages: {len(pdf.pages)}
         chunks: List[RetrievedChunk],
     ) -> str:
         """Build prompt for grounded RAG citation matching."""
-        # Build list of valid citation targets
+        # Build list of valid citation targets with page ranges
         valid_targets = []
+        pages_by_source = {}  # citation_key -> sorted list of pages
         seen = set()
+
         for c in chunks:
             key = f"{c.citation_key}_p{c.book_page}"
             if key not in seen:
                 seen.add(key)
                 valid_targets.append(f"- {c.citation_key}, p.{c.book_page}")
+                # Track pages per source for range detection
+                if c.citation_key not in pages_by_source:
+                    pages_by_source[c.citation_key] = []
+                pages_by_source[c.citation_key].append(c.book_page)
+
+        # Sort pages for each source
+        for key in pages_by_source:
+            pages_by_source[key] = sorted(set(pages_by_source[key]))
 
         valid_targets_str = "\n".join(valid_targets[:50])
+
+        # Build page range info for sources with consecutive pages
+        range_info = []
+        for citation_key, pages in pages_by_source.items():
+            if len(pages) > 1:
+                range_info.append(f"  {citation_key}: pages {pages}")
+        range_info_str = "\n".join(range_info) if range_info else "  (no multi-page sources detected)"
 
         prompt = f"""You are an expert academic citation assistant using GROUNDED evidence matching.
 
@@ -818,6 +835,10 @@ Total pages: {len(pdf.pages)}
 
 {valid_targets_str}
 
+=== AVAILABLE PAGE RANGES ===
+
+{range_info_str}
+
 === CRITICAL RULES ===
 
 1. ONLY cite using (citation_key, page_number) pairs from RETRIEVED EVIDENCE above
@@ -825,6 +846,17 @@ Total pages: {len(pdf.pages)}
 3. If no evidence matches a claim, do NOT cite it
 4. Copy the EXACT page number from evidence header [citation_key, p.XX]
 5. Match claims to evidence based on semantic similarity
+
+=== PAGE RANGES ===
+
+If a claim is supported by evidence from MULTIPLE CONSECUTIVE pages (e.g., p.3, p.4, p.5),
+you may specify a page range using "book_page_end". Both start and end pages MUST exist
+in the retrieved evidence. Example: book_page=3, book_page_end=5 for pp. 3-5.
+
+Only use page ranges when:
+- The claim is a broad topic/concept spanning multiple pages
+- You have evidence from at least 2-3 consecutive pages
+- The evidence from different pages supports the SAME claim
 
 === OUTPUT FORMAT (JSON only) ===
 
@@ -835,8 +867,17 @@ Total pages: {len(pdf.pages)}
       "claim_text": "exact text from paragraph needing citation",
       "citation_key": "halliday1976",
       "book_page": 322,
+      "book_page_end": null,
       "evidence_match": "brief quote from matching evidence",
       "confidence": 0.85
+    }},
+    {{
+      "claim_text": "topic spanning multiple pages",
+      "citation_key": "beaugrande1981",
+      "book_page": 3,
+      "book_page_end": 11,
+      "evidence_match": "concept introduced on p.3, elaborated through p.11",
+      "confidence": 0.90
     }}
   ]
 }}
@@ -852,7 +893,10 @@ If no claims match the evidence, return: {{"citations": []}}
         chunks: List[RetrievedChunk],
         style: CitationStyle,
     ) -> List["GroundedCitation"]:
-        """Parse grounded citations and validate page numbers."""
+        """Parse grounded citations and validate page numbers.
+
+        Supports page ranges (e.g., pp. 3-11) when Gemini provides book_page_end.
+        """
         citations = []
 
         try:
@@ -873,7 +917,7 @@ If no claims match the evidence, return: {{"citations": []}}
 
             data = json.loads(json_text)
 
-            # Build lookup for validation
+            # Build lookup for validation: (citation_key, page) -> chunk
             valid_pages = {}
             for chunk in chunks:
                 key = (chunk.citation_key, chunk.book_page)
@@ -883,8 +927,9 @@ If no claims match the evidence, return: {{"citations": []}}
             for cite_data in data.get("citations", []):
                 citation_key = cite_data.get("citation_key")
                 book_page = cite_data.get("book_page", 1)
+                book_page_end = cite_data.get("book_page_end")  # NEW: page range end
 
-                # Validate page exists in retrieval
+                # Validate start page exists in retrieval
                 lookup_key = (citation_key, book_page)
                 if lookup_key not in valid_pages:
                     # Try fuzzy match
@@ -900,16 +945,51 @@ If no claims match the evidence, return: {{"citations": []}}
 
                 chunk = valid_pages[lookup_key]
 
-                # Format citation string
+                # Validate page range if specified
+                page_end = None
+                pdf_page_end = None
+                if book_page_end is not None and book_page_end != book_page:
+                    # Validate end page exists
+                    end_key = (citation_key, book_page_end)
+                    if end_key in valid_pages:
+                        end_chunk = valid_pages[end_key]
+                        page_end = book_page_end
+                        pdf_page_end = end_chunk.pdf_page
+                        logger.info(f"Page range validated: {citation_key} pp. {book_page}-{book_page_end}")
+                    else:
+                        # Try to find closest valid end page
+                        valid_source_pages = sorted([
+                            pg for (ck, pg) in valid_pages.keys()
+                            if ck == citation_key and pg > book_page
+                        ])
+                        if valid_source_pages:
+                            # Use highest available page up to requested end
+                            for pg in reversed(valid_source_pages):
+                                if pg <= book_page_end:
+                                    end_chunk = valid_pages[(citation_key, pg)]
+                                    page_end = pg
+                                    pdf_page_end = end_chunk.pdf_page
+                                    logger.info(f"Page range adjusted: {citation_key} pp. {book_page}-{pg} (requested {book_page_end})")
+                                    break
+
+                # Format citation string with page range support
                 author_str = chunk.authors if chunk.authors else "Unknown"
                 year = chunk.year if chunk.year else 0
-                page = chunk.book_page
 
-                if style == CitationStyle.APA7:
-                    citation_string = f"({author_str}, {year}, p. {page})"
+                if page_end is not None and page_end != book_page:
+                    # Page range: pp. X-Y
+                    if style == CitationStyle.APA7:
+                        citation_string = f"({author_str}, {year}, pp. {book_page}-{page_end})"
+                    else:
+                        title = chunk.title if chunk.title else "Unknown"
+                        citation_string = f'{author_str}, "{title}" ({year}): {book_page}-{page_end}.'
                 else:
-                    title = chunk.title if chunk.title else "Unknown"
-                    citation_string = f'{author_str}, "{title}" ({year}): {page}.'
+                    # Single page: p. X
+                    if style == CitationStyle.APA7:
+                        citation_string = f"({author_str}, {year}, p. {book_page})"
+                    else:
+                        title = chunk.title if chunk.title else "Unknown"
+                        citation_string = f'{author_str}, "{title}" ({year}): {book_page}.'
 
                 citations.append(GroundedCitation(
                     citation_key=chunk.citation_key,
@@ -922,6 +1002,8 @@ If no claims match the evidence, return: {{"citations": []}}
                     authors=chunk.authors,
                     year=year,
                     title=chunk.title,
+                    page_end=page_end,
+                    pdf_page_end=pdf_page_end,
                 ))
 
         except json.JSONDecodeError as e:
@@ -933,7 +1015,10 @@ If no claims match the evidence, return: {{"citations": []}}
 
 
 class GroundedCitation:
-    """Citation with verified page from RAG retrieval."""
+    """Citation with verified page from RAG retrieval.
+
+    Supports page ranges for concepts spanning multiple pages (e.g., pp. 123-126).
+    """
 
     def __init__(
         self,
@@ -948,10 +1033,14 @@ class GroundedCitation:
         year: int = 0,
         title: str = "",
         source_paragraph_id: int = -1,
+        page_end: Optional[int] = None,
+        pdf_page_end: Optional[int] = None,
     ):
         self.citation_key = citation_key
-        self.page_number = page_number
+        self.page_number = page_number  # Start page (or single page)
+        self.page_end = page_end  # End page for ranges (None if single page)
         self.pdf_page_number = pdf_page_number
+        self.pdf_page_end = pdf_page_end  # End PDF page for ranges
         self.claim_text = claim_text
         self.evidence_text = evidence_text
         self.confidence = confidence
@@ -961,6 +1050,18 @@ class GroundedCitation:
         self.title = title
         self.source_pdf = None
         self.source_paragraph_id = source_paragraph_id  # Which paragraph this citation is for
+
+    @property
+    def is_page_range(self) -> bool:
+        """Return True if this citation spans multiple pages."""
+        return self.page_end is not None and self.page_end != self.page_number
+
+    @property
+    def page_string(self) -> str:
+        """Format page(s) as 'p. X' or 'pp. X-Y'."""
+        if self.is_page_range:
+            return f"pp. {self.page_number}-{self.page_end}"
+        return f"p. {self.page_number}"
 
     @property
     def journal_page(self) -> int:

@@ -20,7 +20,10 @@ from .citation_engine import GroundedCitation
 
 @dataclass
 class CitationExportRow:
-    """Single row in citation export."""
+    """Single row in citation export.
+
+    Supports page ranges (e.g., pp. 3-11) via book_page_end/pdf_page_end fields.
+    """
     row_type: str  # "retrieved_chunk" or "citation"
     sentence_id: int  # Which sentence this relates to
     sentence_text: str  # The actual sentence being cited
@@ -32,6 +35,20 @@ class CitationExportRow:
     evidence_text: str
     citation_string: str = ""
     claim_text: str = ""
+    book_page_end: Optional[int] = None  # End page for page ranges
+    pdf_page_end: Optional[int] = None  # End PDF page for page ranges
+
+    @property
+    def is_page_range(self) -> bool:
+        """Return True if this row spans multiple pages."""
+        return self.book_page_end is not None and self.book_page_end != self.book_page
+
+    @property
+    def page_display(self) -> str:
+        """Format page(s) as 'p. X' or 'pp. X-Y'."""
+        if self.is_page_range:
+            return f"pp. {self.book_page}-{self.book_page_end}"
+        return f"p. {self.book_page}"
 
 
 @dataclass
@@ -63,7 +80,9 @@ class CitationExportResult:
             "rank",
             "citation_key",
             "book_page",
+            "book_page_end",
             "pdf_page",
+            "pdf_page_end",
             "confidence",
             "evidence_text",
             "citation_string",
@@ -214,7 +233,9 @@ class CitationExporter:
             rank=rank,
             citation_key=citation.citation_key,
             book_page=citation.page_number,
+            book_page_end=getattr(citation, 'page_end', None),  # Page range end
             pdf_page=citation.pdf_page_number,
+            pdf_page_end=getattr(citation, 'pdf_page_end', None),  # PDF page range end
             confidence=citation.confidence,
             evidence_text=citation.evidence_text[:500].replace('\n', ' ') if citation.evidence_text else "",
             citation_string=citation.citation_string,
