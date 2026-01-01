@@ -1,54 +1,135 @@
+<div align="center">
+
 # Scholaris
 
-[![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://python.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](https://github.com/joseluissaorin/scholaris)
+### **AI-Powered Academic Citation System**
 
-> **Automate your entire academic research workflow** — from paper discovery to citation-ready documents.
+[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-1.0.0-blue?style=for-the-badge)](https://github.com/joseluissaorin/scholaris)
 
-Research that takes **hours** → Done in **minutes**.
+**Automatically cite your academic writing with verified page numbers.**
 
----
+Vision OCR · Page-Aware RAG · Grounded Citations · Shareable .spdf Format
 
-## ✨ What Scholaris Does
+[Get Started](#-quick-start) · [Auto-Citation](#-auto-citation-system) · [.spdf Format](#-shareable-spdf-format)
 
-```python
-from scholaris import Scholaris
-
-scholar = Scholaris(gemini_api_key="your-api-key")
-
-# Complete research workflow in one call
-review = scholar.complete_workflow(
-    topic="Transformer Neural Networks",
-    max_papers=10,
-    output_format="docx"
-)
-# ✓ Searched papers
-# ✓ Downloaded PDFs
-# ✓ Extracted citations
-# ✓ Generated review
-# ✓ Exported to Word
-```
+</div>
 
 ---
 
-## 🚀 Key Features
+<br/>
 
-### 📚 **Paper Discovery & Download**
-- **Smart Search**: Find papers via Google Scholar
-- **Batch Download**: Auto-download PDFs via Sci-Hub
-- **Dual BibTeX Extraction**: pdf2bib + AI fallback (85% accuracy)
+## What Makes Scholaris Different
 
-### ✍️ **Auto-Citation System** <Badge>NEW</Badge>
-- **Vision OCR**: Extract text from scanned PDFs with verified page numbers
-- **Page-Aware RAG**: Grounded citations - page numbers come from retrieval, not guessing
-- **Shareable .spdf Format**: Process PDFs once, share and reuse forever (no re-processing)
-- **Bibliography Auto-Processing**: Drop PDFs in a folder, Scholaris handles the rest
-- **Page Range Support**: Citations like `pp. 123-126` for multi-page concepts
-- **AI Metadata Extraction**: Automatically generates BibTeX when pdf2bib fails
-- **CSV/JSON Export**: Detailed citation verification data for academic rigor
-- **Multiple Styles**: APA 7th & Chicago 17th Edition
-- **Multi-Format I/O**: Read/write TXT, MD, DOCX, PDF, HTML, RTF, ODT, LaTeX
+Other tools help you *organize* references. Scholaris **automatically inserts citations into your writing** with real, verified page numbers.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### The Problem
+
+You write: *"Transformers revolutionized NLP through self-attention mechanisms."*
+
+Now you need to:
+- Find which paper supports this claim
+- Hunt through a 50-page PDF for the right page
+- Format the citation correctly
+- Repeat for every claim in your document
+
+</td>
+<td width="50%" valign="top">
+
+### The Solution
+
+Scholaris reads your text, matches claims to sources, and inserts citations automatically:
+
+*"Transformers revolutionized NLP through self-attention mechanisms.* **(Vaswani et al., 2017, p. 1)**"
+
+- Page numbers verified via Vision OCR
+- Every citation grounded in retrieved evidence
+- Confidence scores show reliability
+
+</td>
+</tr>
+</table>
+
+<br/>
+
+---
+
+<br/>
+
+## Auto-Citation in Action
+
+<div align="center">
+
+![Auto-Citation Example](media/example-auto-citation.png)
+
+*Your text → AI matches claims to sources → Verified page numbers with confidence scores*
+
+</div>
+
+<br/>
+
+**Before:**
+> Beaugrande and Dressler identified seven standards of textuality that distinguish a text from a random collection of sentences: cohesion, coherence, intentionality, acceptability, informativity, situationality, and intertextuality.
+
+**After:**
+> Beaugrande and Dressler identified seven standards of textuality that distinguish a text from a random collection of sentences: cohesion, coherence, intentionality, acceptability, informativity, situationality, and intertextuality. **(Beaugrande et al., 1981, p. 3)**
+
+<br/>
+
+---
+
+<br/>
+
+## Core Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### Vision OCR + Page-Aware RAG
+- **Scanned PDF support** — OCR extracts text from images
+- **Real page numbers** — reads printed page numbers, not PDF indices
+- **Landscape detection** — handles double-page book scans
+- **Roman numerals** — front matter (i, ii, xii) supported
+
+### Grounded Citations
+- **No guessing** — page numbers come from retrieval, not hallucination
+- **Confidence scores** — 0.0-1.0 reliability rating per citation
+- **Evidence tracking** — see exactly what text matched each claim
+- **CSV/JSON export** — full audit trail for verification
+
+</td>
+<td width="50%" valign="top">
+
+### Shareable .spdf Format
+- **Process once, use forever** — no re-processing needed
+- **Single portable file** — share with colleagues instantly
+- **Contains everything** — OCR text, embeddings, page metadata
+- **Recovery features** — export previews if original PDF lost
+
+### Citation Styles & Formats
+- **APA 7th & Chicago 17th** — automatic formatting
+- **Multi-format I/O** — DOCX, PDF, Markdown, LaTeX, HTML, RTF, ODT
+- **Page ranges** — supports `pp. 123-126` for multi-page concepts
+
+</td>
+</tr>
+</table>
+
+<br/>
+
+---
+
+<br/>
+
+## Auto-Citation System
+
+### Basic Usage
 
 ```python
 from scholaris.auto_cite import CitationOrchestrator
@@ -60,8 +141,8 @@ orchestrator = CitationOrchestrator(gemini_api_key="your-key")
 bibliography = orchestrator.process_bibliography(
     pdf_paths=["paper1.pdf", "paper2.pdf"],
     citation_keys=["smith2023", "jones2024"],
-    references=[...],
-    bib_entries=[...]
+    references=references,
+    bib_entries=bib_entries
 )
 
 # Insert citations into your document
@@ -73,471 +154,55 @@ request = CitationRequest(
 )
 
 result = orchestrator.insert_citations(request)
-# ✓ Claims identified
-# ✓ Sources matched with confidence scores
-# ✓ Page numbers verified
-# ✓ Citations formatted: (Smith, 2023, p. 142)
-```
-
-**How It Works:**
-1. **Page Detection** (5-strategy cascade):
-   - Footer/header parsing
-   - BibTeX validation
-   - DOI → Crossref lookup
-   - Vision OCR (Gemini Flash Lite / Mistral Pixtral)
-   - PDF fallback
-
-2. **AI Citation Matching** (Hybrid Mode):
-   - **Full Context Mode** (<50 papers): Loads entire bibliography into Gemini 3 Flash
-   - **RAG Mode** (50+ papers): Vector search with ChromaDB + gemini-embedding-001
-   - Auto-switches based on bibliography size
-   - Intelligently matches claims to sources
-   - Extracts precise page numbers
-   - Confidence scoring (0.0-1.0)
-
-3. **Citation Insertion**:
-   - Preview mode: See what will be inserted
-   - Apply mode: Actually modify document
-   - Warnings for low-confidence detections
-
-**Before/After Demo:**
-
-Here's how the system transforms uncited text into properly cited academic writing:
-
-*Example 1: Model Interpretability*
-
-**BEFORE:**
-```
-One of the fundamental challenges in modern machine learning is model interpretability.
-Deep neural networks, while powerful, operate as black boxes that make it difficult for
-researchers to understand why specific predictions are made. This opacity creates significant
-barriers to trust and adoption in scientific applications where understanding the underlying
-reasoning is as important as the prediction itself. Recent advances have focused on developing
-interactive frameworks that allow researchers to query models using natural language, making
-the interpretation process more accessible to domain experts without extensive machine
-learning expertise.
-```
-
-**AFTER:**
-```
-One of the fundamental challenges in modern machine learning is model interpretability.
-Deep neural networks, while powerful, operate as black boxes that make it difficult for
-researchers to understand why specific predictions are made. (Singh, 2023, p. 873) This
-opacity creates significant barriers to trust and adoption in scientific applications where
-understanding the underlying reasoning is as important as the prediction itself. Recent
-advances have focused on developing interactive frameworks that allow researchers to query
-models using natural language, making the interpretation process more accessible to domain
-experts without extensive machine learning expertise. (Singh, 2023, p. 873)
-```
-
-*Example 2: Drug Discovery*
-
-**BEFORE:**
-```
-The field of computational chemistry has particularly benefited from machine learning
-applications. Traditional methods for predicting molecular properties and interactions have
-been computationally expensive and limited in scope. Machine learning approaches can process
-vast amounts of chemical data to identify patterns and make predictions about molecular
-behavior. In drug discovery, algorithms can now screen millions of potential compounds,
-significantly accelerating the identification of promising therapeutic candidates. The
-integration of probabilistic methods has further improved the reliability of these predictions
-by quantifying uncertainty in model outputs.
-```
-
-**AFTER:**
-```
-The field of computational chemistry has particularly benefited from machine learning
-applications. Traditional methods for predicting molecular properties and interactions have
-been computationally expensive and limited in scope. Machine learning approaches can process
-vast amounts of chemical data to identify patterns and make predictions about molecular
-behavior. In drug discovery, algorithms can now screen millions of potential compounds,
-significantly accelerating the identification of promising therapeutic candidates.
-(Coley, 2022, p. 2032) The integration of probabilistic methods has further improved the
-reliability of these predictions by quantifying uncertainty in model outputs.
-(Coley, 2022, p. 2037)
-```
-
-*Example 3: Materials Science*
-
-**BEFORE:**
-```
-Materials science represents another domain where machine learning has made substantial
-contributions. The discovery of new materials with specific properties has traditionally
-relied on time-consuming experimental trial and error. Machine learning models can now
-predict material properties based on atomic composition and structure, enabling researchers
-to computationally screen thousands of potential materials before conducting expensive
-experiments. This approach has been successfully applied to identifying materials for
-applications ranging from catalysis to electronic devices, including the development of
-high-responsivity detectors for extreme ultraviolet radiation.
-```
-
-**AFTER:**
-```
-Materials science represents another domain where machine learning has made substantial
-contributions. The discovery of new materials with specific properties has traditionally
-relied on time-consuming experimental trial and error. Machine learning models can now
-predict material properties based on atomic composition and structure, enabling researchers
-to computationally screen thousands of potential materials before conducting expensive
-experiments. This approach has been successfully applied to identifying materials for
-applications ranging from catalysis to electronic devices, including the development of
-high-responsivity detectors for extreme ultraviolet radiation. (Shabbir, 2025, p. 1)
-```
-
-**Results from End-to-End Test:**
-- ✅ 949-word uncited document → 985-word cited document
-- ✅ 9 citations inserted with accurate journal page numbers
-- ✅ 6 different sources cited (Singh, Coley, Shabbir, Xin, Baker, Duede, Barba)
-- ✅ All citations placed at claim-specific locations
-- ✅ 90% reliable page detection (9/10 papers)
-
-**Multi-Format File Support:**
-
-Read and write documents in any format:
-
-```python
-from scholaris.auto_cite import CitationOrchestrator
-from scholaris.auto_cite.models import CitationStyle
-
-orchestrator = CitationOrchestrator(gemini_api_key="your-key")
-bibliography = orchestrator.process_bibliography(...)
-
-# Complete workflow: Read DOCX → Insert citations → Export to PDF
-result = orchestrator.insert_citations_with_export(
-    input_file="draft.docx",      # Read from Word
-    output_file="cited_paper.pdf", # Export to PDF
-    bibliography=bibliography,
-    style=CitationStyle.APA7,
-    metadata={"title": "My Research", "author": "John Doe"}
-)
-
-print(f"✓ Inserted {len(result.citations)} citations")
-# ✓ Inserted 15 citations
-```
-
-**Supported Formats:**
-
-| Format | Input | Output | Notes |
-|--------|-------|--------|-------|
-| Plain Text (`.txt`) | ✅ | ✅ | Universal support |
-| Markdown (`.md`) | ✅ | ✅ | With YAML frontmatter |
-| Microsoft Word (`.docx`) | ✅ | ✅ | Full formatting support |
-| HTML (`.html`) | ✅ | ✅ | Web-ready documents |
-| PDF (`.pdf`) | ✅ | ✅ | Text extraction / Export |
-| LaTeX (`.tex`) | ✅ | ✅ | Academic publishing |
-| Rich Text (`.rtf`) | ✅ | ✅ | Requires pandoc |
-| OpenDocument (`.odt`) | ✅ | ✅ | LibreOffice compatible |
-
-**Format Auto-Detection:**
-File formats are automatically detected from extensions - no manual configuration needed!
-
-### 📝 **AI Literature Reviews**
-- **Intelligent Writing**: Gemini-powered synthesis
-- **Custom Sections**: Define your own structure
-- **Multiple Languages**: Write in any language
-- **Academic Quality**: APA-style formatting
-
-### 📤 **Multi-Format Export**
-- Markdown (`.md`) - With YAML frontmatter
-- Microsoft Word (`.docx`) - APA formatted
-- HTML (`.html`) - Web-ready with CSS
-- PDF (`.pdf`) - High-quality export
-- LaTeX (`.tex`) - Academic publishing
-- Rich Text (`.rtf`) - Cross-platform
-- OpenDocument (`.odt`) - LibreOffice
-- BibTeX (`.bib`) - Reference management
-
----
-
-## 📦 Installation
-
-```bash
-# Standard installation
-pip install git+https://github.com/joseluissaorin/scholaris.git
-
-# With enhanced PDF extraction
-pip install git+https://github.com/joseluissaorin/scholaris.git[pdf]
-
-# Development mode
-git clone https://github.com/joseluissaorin/scholaris.git
-cd scholaris
-pip install -e .[dev]
-```
-
-**Requirements:**
-- Python 3.9+
-- [Gemini API Key](https://makersuite.google.com/app/apikey) (free tier available)
-
----
-
-## 🎯 Quick Start
-
-### 1️⃣ Complete Automation
-
-```python
-from scholaris import Scholaris
-
-scholar = Scholaris(gemini_api_key="your-api-key")
-
-# Everything automated: search → download → cite → review → export
-review = scholar.complete_workflow(
-    topic="Machine Learning in Healthcare",
-    max_papers=10,
-    min_year=2020,
-    sections=["Introduction", "Methods", "Applications", "Conclusion"],
-    output_format="docx",
-    output_path="./review.docx"
-)
-
-print(f"✓ {review.word_count} words, {len(review.references)} references")
-```
-
-### 2️⃣ Use Your Own PDFs
-
-```python
-scholar = Scholaris(gemini_api_key="your-api-key")
-
-# Skip search, use your files
-review = scholar.complete_workflow(
-    topic="My Research Topic",
-    auto_search=False,
-    user_pdfs=["./papers/paper1.pdf", "./papers/paper2.pdf"],
-    output_format="markdown"
-)
-```
-
-### 3️⃣ Auto-Citation Workflow
-
-```python
-from scholaris.auto_cite import CitationOrchestrator
-from scholaris.auto_cite.models import CitationRequest, CitationStyle
-
-# Initialize
-orchestrator = CitationOrchestrator(
-    gemini_api_key="your-key",
-    crossref_email="your@email.com"  # Optional: better page detection
-)
-
-# Load your bibliography
-bibliography = orchestrator.process_bibliography(
-    pdf_paths=["smith2023.pdf", "jones2024.pdf"],
-    citation_keys=["smith2023", "jones2024"],
-    references=references,  # Reference objects
-    bib_entries=bib_entries  # BibTeX dicts
-)
-
-# Your research document
-document = """
-Deep learning has revolutionized computer vision. Recent work shows
-that transformer architectures outperform CNNs on many tasks.
-"""
-
-# Insert citations
-request = CitationRequest(
-    document_text=document,
-    bibliography=bibliography,
-    style=CitationStyle.APA7,
-    preview_mode=True,
-    min_confidence=0.7
-)
-
-result = orchestrator.insert_citations(request)
 
 # Review results
-print(f"✓ {len(result.citations)} citations inserted")
 for citation in result.citations:
-    print(f"  - {citation.claim_text[:50]}...")
-    print(f"    {citation.citation_string} (confidence: {citation.confidence})")
-
-# Apply to document (preview_mode=False)
-if input("Apply citations? (y/n): ") == "y":
-    request.preview_mode = False
-    final_result = orchestrator.insert_citations(request)
-    print(final_result.modified_document)
+    print(f"{citation.citation_string} (confidence: {citation.confidence})")
 ```
 
-### 4️⃣ Step-by-Step Control
+### Multi-Format Workflow
 
 ```python
-# Maximum flexibility
-papers = scholar.search_papers("neural networks", max_papers=15)
-pdf_paths = scholar.download_papers(papers, output_dir="./papers")
-bibtex = scholar.generate_bibtex(pdf_paths, method="auto")
-review = scholar.generate_review(topic="Neural Networks", papers=papers)
-scholar.export_docx(review, "review.docx")
+# Read DOCX → Insert citations → Export to PDF
+result = orchestrator.insert_citations_with_export(
+    input_file="draft.docx",
+    output_file="cited_paper.pdf",
+    bibliography=bibliography,
+    style=CitationStyle.APA7
+)
+
+print(f"Inserted {len(result.citations)} citations")
 ```
+
+### Supported Formats
+
+| Format | Input | Output |
+|--------|:-----:|:------:|
+| Plain Text (.txt) | Yes | Yes |
+| Markdown (.md) | Yes | Yes |
+| Microsoft Word (.docx) | Yes | Yes |
+| PDF (.pdf) | Yes | Yes |
+| LaTeX (.tex) | Yes | Yes |
+| HTML (.html) | Yes | Yes |
+| Rich Text (.rtf) | Yes | Yes |
+| OpenDocument (.odt) | Yes | Yes |
+
+<br/>
 
 ---
 
-## 📖 API Reference
+<br/>
 
-### Core Class: `Scholaris`
-
-```python
-scholar = Scholaris(gemini_api_key="...", config=Config(...))
-```
-
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `search_papers(topic, max_papers, min_year)` | Search Google Scholar | `List[Paper]` |
-| `download_papers(papers, output_dir)` | Download PDFs via Sci-Hub | `List[str]` |
-| `generate_bibtex(pdf_paths, method)` | Extract citations | `List[Reference]` |
-| `generate_review(topic, papers, sections)` | AI literature review | `Review` |
-| `complete_workflow(topic, ...)` | End-to-end automation | `Review` |
-| `export_markdown/docx/html(review, path)` | Export to formats | `None` |
-
-### Auto-Citation Class: `CitationOrchestrator`
-
-```python
-orchestrator = CitationOrchestrator(
-    gemini_api_key="...",
-    pdf_threshold=50,          # Switch to RAG at 50+ papers
-    use_rag_mode=True,         # Enable RAG for large bibliographies
-    crossref_email="...",      # Optional: better page detection via Crossref
-    mistral_api_key="..."      # Optional: Mistral OCR fallback (uses Gemini by default)
-)
-```
-
-**Parameters:**
-- `gemini_api_key`: Google Gemini API key (required - also used for vision OCR)
-- `pdf_threshold`: Number of papers to trigger RAG mode (default: 50)
-- `use_rag_mode`: Enable hybrid Full Context/RAG mode (default: True)
-- `crossref_email`: Email for Crossref API polite pool (optional, improves page detection)
-- `mistral_api_key`: Mistral API key for OCR fallback (optional, Gemini used by default)
-
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `process_bibliography(pdf_paths, citation_keys, references, bib_entries)` | Load & detect page offsets | `List[PageAwarePDF]` |
-| `insert_citations(request)` | Auto-insert citations (hybrid mode) | `CitationResult` |
-| `insert_citations_from_file(input_file, bibliography, style, ...)` | Read file → Insert citations | `CitationResult` |
-| `insert_citations_with_export(input_file, output_file, bibliography, ...)` | Complete workflow with I/O | `CitationResult` |
-
-**Models:**
-- `CitationRequest`: Configuration for citation insertion
-- `CitationResult`: Results with modified document, citations, warnings
-- `CitationStyle`: `APA7` or `CHICAGO17`
-- `PageAwarePDF`: PDF with accurate page mapping
-
-**RAG Mode Features:**
-- Automatically activates for 50+ papers
-- Uses ChromaDB vector database
-- Retrieves only relevant sources per claim
-- Reduces token usage by ~80%
-- Maintains citation accuracy
-
----
-
-## 🎨 Real-World Examples
-
-### Systematic Literature Review
-```python
-review = scholar.complete_workflow(
-    topic="Deep Learning for Medical Image Segmentation: A Systematic Review",
-    max_papers=50,
-    min_year=2018,
-    sections=[
-        "Abstract", "Introduction", "Methodology",
-        "Architectures", "Datasets", "Results",
-        "Discussion", "Future Directions", "Conclusion"
-    ],
-    min_words_per_section=1500,
-    output_format="docx"
-)
-```
-
-### Conference Preparation
-```python
-# Quick overview of hot topics
-papers = scholar.search_papers("Federated Learning", max_papers=20, min_year=2023)
-review = scholar.generate_review(
-    topic="Federated Learning State-of-the-Art",
-    papers=papers,
-    sections=["Key Innovations", "Challenges", "Applications"]
-)
-```
-
-### Grant Proposal Background
-```python
-# Multi-topic search
-topics = ["reinforcement learning robotics", "sim-to-real transfer"]
-all_papers = []
-for topic in topics:
-    all_papers.extend(scholar.search_papers(topic, max_papers=15))
-
-pdfs = scholar.download_papers(all_papers)
-bibtex = scholar.generate_bibtex(pdfs)
-scholar.export_bibtex(bibtex, "grant_references.bib")
-```
-
-### Scanned PDF Support with Vision OCR
-
-```python
-from scholaris.auto_cite import (
-    VisionOCRProcessor,
-    PageAwareRAG,
-    GeminiCitationEngine,
-    CitationExporter,
-    CitationStyle,
-)
-
-# Initialize components
-ocr = VisionOCRProcessor(gemini_api_key="your-key")
-rag = PageAwareRAG(gemini_api_key="your-key", db_path="./citation_index")
-engine = GeminiCitationEngine(api_key="your-key")
-exporter = CitationExporter()
-
-# Process scanned PDF with Vision OCR
-ocr_pages = ocr.process_pdf("scanned_book.pdf")
-# ✓ Detects landscape double-page scans
-# ✓ Extracts printed page numbers from images
-# ✓ Handles Roman numerals (front matter)
-
-# Index with verified page metadata
-rag.index_pdf(
-    citation_key="beaugrande1981",
-    ocr_pages=ocr_pages,
-    authors=["Robert-Alain de Beaugrande", "Wolfgang U. Dressler"],
-    year=1981,
-    title="Introduction to Text Linguistics"
-)
-
-# Generate grounded citations
-document = """
-Beaugrande and Dressler identified seven standards of textuality that
-distinguish a text from a random collection of sentences: cohesion, coherence,
-intentionality, acceptability, informativity, situationality, and intertextuality.
-"""
-
-citations = engine.analyze_with_grounded_rag(
-    document_text=document,
-    rag=rag,
-    style=CitationStyle.APA7,
-    exporter=exporter  # Track for export
-)
-
-# Export verification data to CSV/JSON
-export_result = exporter.export(document_text=document)
-export_result.to_csv("citation_verification.csv")
-export_result.to_json("citation_verification.json")
-
-# ✓ Each citation has VERIFIED page number from OCR
-# ✓ No more "page 1" fallback errors
-# ✓ Full audit trail in CSV/JSON
-```
-
-**Output CSV Format:**
-| row_type | sentence_id | citation_key | book_page | pdf_page | confidence | evidence_text |
-|----------|-------------|--------------|-----------|----------|------------|---------------|
-| retrieved_chunk | 0 | beaugrande1981 | 11 | 15 | 0.83 | "We have now glanced at all seven..." |
-| citation | 0 | beaugrande1981 | 3 | 11 | 0.95 | "A TEXT will be defined as..." |
-
-### Shareable Processed PDFs (.spdf)
+## Shareable .spdf Format
 
 Process PDFs once, share and reuse forever. The `.spdf` format stores everything needed for citation matching in a single compressed file.
 
-```python
-from scholaris.auto_cite import ProcessedPDF, CitationIndex, CitationStyle
+### Create .spdf Files
 
-# === PROCESS ONCE ===
+```python
+from scholaris.auto_cite import ProcessedPDF
+
+# Process a PDF (Vision OCR + embeddings)
 processed = ProcessedPDF.from_pdf(
     pdf_path="beaugrande1981.pdf",
     citation_key="beaugrande1981",
@@ -545,467 +210,277 @@ processed = ProcessedPDF.from_pdf(
     year=1981,
     title="Introduction to Text Linguistics",
     gemini_api_key="your-key",
-    include_previews=True,  # Store low-res pages for recovery
+    include_previews=True  # Store low-res pages for recovery
 )
+
+# Save as shareable file
 processed.save("beaugrande1981.spdf")
-# ✓ Compressed SQLite: ~3-5 MB per 100 pages
-# ✓ Contains: OCR text, chunks, embeddings, previews
-# ✓ Shareable: Send to colleagues, works instantly
+```
 
-# === LOAD INSTANTLY (no API calls) ===
-loaded = ProcessedPDF.load("beaugrande1981.spdf")
+### Use .spdf Files
 
-# === BIBLIOGRAPHY FOLDER (auto-processing) ===
-# Just drop PDFs and .spdf files in a folder:
-#   bibliography/
-#   ├── beaugrande1981.spdf   ← Ready to use
-#   ├── halliday1976.spdf     ← Ready to use
-#   ├── newpaper2024.pdf      ← Will be auto-processed
-#   └── another.pdf           ← Will be auto-processed
+```python
+from scholaris.auto_cite import CitationIndex, CitationStyle
 
+# Load from a bibliography folder
+# Existing .spdf files load instantly (no API calls)
+# New PDFs are auto-processed and saved as .spdf
 index = CitationIndex.from_bibliography(
     folder="./bibliography/",
     gemini_api_key="your-key",
-    auto_process=True,   # Process PDFs without .spdf
-    save_processed=True, # Save .spdf next to PDFs
+    auto_process=True,
+    save_processed=True
 )
-# ✓ Loads existing .spdf files instantly
-# ✓ Processes new PDFs and saves .spdf for next time
 
-# === GENERATE CITATIONS ===
+# Generate citations
 citations = index.cite(
     document_text="Your research paper text...",
-    style=CitationStyle.APA7,
-)
-
-for cit in citations:
-    print(cit.citation_string)
-# (Beaugrande et al., 1981, p. 3)
-# (Halliday, 1976, pp. 322-325)
-```
-
-**Supported Extensions:** `.spdf`, `.scholaris`, `.scpdf`
-
-**File Format:** Gzip-compressed SQLite database (single portable file)
-
-**Complete .spdf Contents:**
-
-| Table | Fields | Description |
-|-------|--------|-------------|
-| **metadata** | `citation_key`, `authors`, `year`, `title` | Source identification |
-| | `source_pdf_hash`, `source_pdf_filename` | Original PDF verification |
-| | `processed_at`, `ocr_model`, `embedding_model` | Processing info |
-| | `embedding_dim`, `schema_version` | Technical specs |
-| | `total_pages`, `total_chunks` | Counts |
-| **pages** | `id`, `pdf_page`, `book_page` | Page mapping |
-| | `text`, `confidence` | OCR content |
-| | `is_landscape_half` | Double-page scan detection |
-| **chunks** | `id`, `page_id`, `chunk_index` | Chunk identification |
-| | `text`, `book_page`, `pdf_page` | Content with verified pages |
-| **embeddings** | `chunk_id`, `vector` (BLOB) | 768-dim float32 vectors |
-| **previews** | `pdf_page`, `thumbnail` (BLOB) | JPEG images |
-| | `width`, `height` | Dimensions |
-
-**Size Estimates:**
-| Content | Size |
-|---------|------|
-| 30-page book section | ~3 MB |
-| 200-page full book | ~15 MB |
-| 15-page journal article | ~1.5 MB |
-
-**Recovery Features:**
-```python
-# If original PDF is lost, recover from .spdf:
-processed = ProcessedPDF.load("beaugrande1981.spdf")
-processed.export_preview_pdf("recovered.pdf")  # Low-res but readable
-processed.export_text("full_text.txt")         # Complete OCR text
-processed.verify_hash("original.pdf")          # Verify against original
-```
-
-### Large Bibliography with RAG Mode
-```python
-from scholaris.auto_cite import CitationOrchestrator
-from scholaris.auto_cite.models import CitationRequest, CitationStyle
-
-# Initialize with RAG enabled (default)
-orchestrator = CitationOrchestrator(
-    gemini_api_key="your-key",
-    pdf_threshold=50  # Auto-switch to RAG at 50+ papers
-)
-
-# Load large bibliography (100+ papers)
-bibliography = orchestrator.process_bibliography(
-    pdf_paths=pdf_paths,  # List of 100+ PDFs
-    citation_keys=citation_keys,
-    references=references,
-    bib_entries=bib_entries
-)
-
-# Your dissertation chapter
-document = """
-[Your 10-page research document with many claims to cite...]
-"""
-
-# Insert citations - automatically uses RAG mode
-request = CitationRequest(
-    document_text=document,
-    bibliography=bibliography,  # 100+ sources
-    style=CitationStyle.APA7,
-    preview_mode=True
-)
-
-result = orchestrator.insert_citations(request)
-# ✓ RAG mode activated automatically
-# ✓ 80% reduction in API costs
-# ✓ Faster processing
-# ✓ Same accuracy
-
-print(f"Mode used: {result.metadata['mode']}")  # "RAG"
-print(f"Citations: {len(result.citations)}")
-```
-
-### Multi-Format Document Conversion
-```python
-from scholaris.auto_cite import CitationOrchestrator
-from scholaris.auto_cite.models import CitationStyle
-
-orchestrator = CitationOrchestrator(gemini_api_key="your-key")
-bibliography = orchestrator.process_bibliography(...)
-
-# Convert Word document to PDF with citations
-result = orchestrator.insert_citations_with_export(
-    input_file="thesis_chapter.docx",     # Read from Word
-    output_file="thesis_chapter.pdf",     # Export to PDF
-    bibliography=bibliography,
-    style=CitationStyle.APA7,
-    metadata={
-        "title": "Chapter 3: Machine Learning Methods",
-        "author": "Jane Researcher",
-        "date": "2024"
-    }
-)
-
-# LaTeX to HTML conversion
-result = orchestrator.insert_citations_with_export(
-    input_file="paper.tex",               # Read LaTeX
-    output_file="paper.html",             # Export to HTML
-    bibliography=bibliography,
     style=CitationStyle.APA7
 )
-
-# Markdown to DOCX (most common workflow)
-result = orchestrator.insert_citations_with_export(
-    input_file="draft.md",                # Read Markdown
-    output_file="final_paper.docx",       # Export to Word
-    bibliography=bibliography,
-    style=CitationStyle.APA7,
-    metadata={"title": "Research Paper", "author": "Your Name"}
-)
-
-print(f"✓ {len(result.citations)} citations inserted")
-print(f"✓ Exported to: {result.metadata['output_file']}")
-# ✓ 23 citations inserted
-# ✓ Exported to: final_paper.docx
 ```
+
+### What's Inside .spdf
+
+| Content | Description |
+|---------|-------------|
+| **Metadata** | Citation key, authors, year, title, source PDF hash |
+| **Pages** | PDF page ↔ book page mapping, OCR confidence |
+| **Chunks** | Text segments with verified page numbers |
+| **Embeddings** | 768-dim vectors for semantic search |
+| **Previews** | Optional low-res page images for recovery |
+
+**File sizes:** ~1.5 MB per 15-page article, ~15 MB per 200-page book
+
+**Supported extensions:** `.spdf`, `.scholaris`, `.scpdf`
+
+<br/>
 
 ---
 
-## ⚙️ Configuration
+<br/>
 
-### Environment Variables
+## How It Works
 
-Create `.env` file:
-```bash
-GEMINI_API_KEY=your_key_here       # Required (citation matching + vision OCR)
-CROSSREF_EMAIL=your@email.com      # Optional: better page detection via Crossref
-MISTRAL_API_KEY=your_key           # Optional: OCR fallback (Gemini used by default)
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    PHASE 1: VISION OCR                       │
+├──────────────────────────────────────────────────────────────┤
+│  PDF Page → Render Image → Gemini Vision OCR                 │
+│     • Detect layout (single page vs landscape double-page)   │
+│     • Extract printed page numbers from image                │
+│     • OCR full text content (handles scanned books)          │
+└─────────────────────────┬────────────────────────────────────┘
+                          ▼
+┌──────────────────────────────────────────────────────────────┐
+│                 PHASE 2: PAGE-AWARE INDEXING                 │
+├──────────────────────────────────────────────────────────────┤
+│  For each extracted page:                                    │
+│     1. Chunk text (500 chars, 100 overlap)                   │
+│     2. Generate Gemini embedding                             │
+│     3. Store in ChromaDB with verified page metadata         │
+└─────────────────────────┬────────────────────────────────────┘
+                          ▼
+┌──────────────────────────────────────────────────────────────┐
+│              PHASE 3: GROUNDED CITATION MATCHING             │
+├──────────────────────────────────────────────────────────────┤
+│  For each claim in your document:                            │
+│     1. Embed claim → Query vector DB → Retrieve top chunks   │
+│     2. Each chunk has VERIFIED page from OCR metadata        │
+│     3. AI matches claim to retrieved evidence ONLY           │
+│     4. Page numbers come from retrieval, NOT guessing        │
+│                                                              │
+│  ✗ Cannot default to page 1 (no evidence = no citation)     │
+│  ✓ Every citation grounded in retrieved evidence            │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### Advanced Config
-
-```python
-from scholaris import Config, Scholaris
-
-config = Config(
-    # LLM
-    llm_provider="gemini",
-    gemini_model="gemini-1.5-pro",
-    temperature=0.7,
-
-    # Search
-    max_papers_per_keyword=10,
-    min_publication_year=2020,
-
-    # Citation
-    citation_style="APA7",
-    bibtex_extraction_method="auto",  # pdf2bib + LLM fallback
-
-    # Paths
-    output_dir="./output",
-    papers_dir="./papers"
-)
-
-scholar = Scholaris(config=config)
-```
+<br/>
 
 ---
 
-## 🏗️ Architecture
+<br/>
 
-```
-┌─────────────────────────────────────────────────┐
-│              Scholaris API                      │
-│  (search, download, cite, review, export)       │
-└───────────────────┬─────────────────────────────┘
-                    │
-        ┌───────────┴───────────┐
-        │                       │
-   ┌────▼─────┐          ┌─────▼──────────┐
-   │  Search  │          │   Auto-Cite    │
-   │ Provider │          │  Orchestrator  │
-   └────┬─────┘          └─────┬──────────┘
-        │                      │
-        │         ┌────────────┼────────────┐
-        │         │            │            │
-        │    ┌────▼────┐  ┌────▼────┐  ┌────▼────┐
-        │    │ Vision  │  │  Page-  │  │Citation │
-        │    │   OCR   │  │  Aware  │  │ Export  │
-        │    │(scanned)│  │   RAG   │  │ (CSV/   │
-        │    └────┬────┘  └────┬────┘  │  JSON)  │
-        │         │            │       └────┬────┘
-        │         └─────┬──────┘            │
-        │               │                   │
-   ┌────▼───────────────▼───────────────────▼──┐
-   │      Core Components                       │
-   │  • PyPaperBot (Search)                     │
-   │  • Gemini 2.0 Flash Lite (Vision OCR)      │
-   │  • gemini-embedding-exp-03-07 (Embeddings) │
-   │  • ChromaDB (Vector Store + Page Metadata) │
-   │  • pdf2bib + AI Fallback (BibTeX)          │
-   │  • Grounded Citation Engine                │
-   └────────────────────────────────────────────┘
-```
+## Scaling: Full Context vs RAG Mode
 
-**Vision OCR + Page-Aware RAG Pipeline:**
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    PHASE 1: VISION OCR                          │
-├─────────────────────────────────────────────────────────────────┤
-│  PDF Page → Render Image → Gemini Vision OCR                    │
-│     ├─ Detect layout: single page vs landscape (2 pages)       │
-│     ├─ Extract printed page number(s) from image               │
-│     └─ OCR full text content (handles scanned books)           │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                 PHASE 2: PAGE-AWARE INDEXING                    │
-├─────────────────────────────────────────────────────────────────┤
-│  For each extracted page:                                        │
-│     1. Chunk text (500 chars, 100 overlap)                      │
-│     2. Generate Gemini embedding                                 │
-│     3. Store in ChromaDB with metadata:                         │
-│        {citation_key, book_page, pdf_page, chunk_idx}           │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│              PHASE 3: GROUNDED CITATION MATCHING                │
-├─────────────────────────────────────────────────────────────────┤
-│  For each paragraph:                                             │
-│     1. Embed paragraph → Query ChromaDB → Top-K chunks          │
-│     2. Each chunk has VERIFIED page from OCR metadata           │
-│     3. Gemini matches claims to retrieved chunks ONLY           │
-│     4. Page numbers come from retrieval, NOT guessing           │
-│                                                                  │
-│  ❌ Cannot default to page 1 (no evidence = no citation)        │
-│  ✅ Every citation grounded in retrieved evidence               │
-└─────────────────────────────────────────────────────────────────┘
-```
+| Mode | Papers | How It Works |
+|------|--------|--------------|
+| **Full Context** | 1-50 | Loads entire bibliography into Gemini context |
+| **RAG Mode** | 50-500+ | Vector search retrieves only relevant sources |
 
----
-
-## 📊 Performance & Accuracy
-
-| Component | Metric | Notes |
-|-----------|--------|-------|
-| **Vision OCR** | 95%+ page accuracy | Gemini 2.0 Flash Lite, handles scanned PDFs |
-| **Landscape Detection** | Automatic | Splits double-page scans correctly |
-| **Roman Numerals** | Supported | Front matter (i, ii, xii) → negative indices |
-| **Page Detection** | 97.4% accuracy | 5-strategy cascade |
-| **BibTeX Extraction** | 75-85% accuracy | Dual method (pdf2bib + AI) |
-| **PDF Download** | 60-80% success | Depends on Sci-Hub availability |
-| **Grounded Citations** | 0% page-1 fallback | Pages from retrieval, not guessing |
-| **Citation Matching (RAG)** | High confidence | ChromaDB + verified page metadata |
-| **End-to-End Workflow** | 15-20 min (10 papers) | Fully automated |
-
-**Recommended Limits:**
-- **Full Context Mode**: 10-50 papers (optimal)
-- **RAG Mode**: 50-500 papers (scalable)
-- Sections: 4-8 (optimal), 12 (max)
-- Words per section: 500-3000
-
-**RAG Mode Benefits** (50+ papers):
+RAG mode automatically activates for large bibliographies:
 - 80% reduction in API token usage
 - 3-5x faster processing
-- Linear scaling with bibliography size
 - Same citation accuracy
 
----
-
-## 🛠️ Troubleshooting
-
-### Common Issues
-
-**"No papers found"**
 ```python
-# Try more general keywords or check Google Scholar access
-papers = scholar.search_papers("machine learning", max_papers=20)
-```
-
-**"Sci-Hub download failed"**
-```python
-# Specify working mirror
-config = Config(scihub_mirror="https://sci-hub.se")
-scholar = Scholaris(config=config)
-```
-
-**"BibTeX extraction failed"**
-```bash
-# Install pdf2bib for better accuracy
-pip install pdf2bib
-```
-
-**Page detection low confidence**
-```python
-# Provide Crossref email for better results
 orchestrator = CitationOrchestrator(
-    gemini_api_key="...",
-    crossref_email="your@email.com"
+    gemini_api_key="your-key",
+    pdf_threshold=50  # Switch to RAG at 50+ papers
 )
 ```
 
+<br/>
+
 ---
 
-## 🔒 Ethics & Responsible Use
+<br/>
 
-**⚠️ Important Notes:**
+## Additional Features
 
-- **Sci-Hub**: Legal status varies by jurisdiction. Use responsibly.
-- **AI Content**: Generated reviews are first drafts. Always review and edit.
-- **Citations**: Verify accuracy before using in academic work.
-- **API Keys**: Never commit API keys to git. Use `.env` files.
+Scholaris also includes tools to support the citation workflow:
 
-**Best Practices:**
+### Paper Discovery & Download
+
 ```python
-# ✅ GOOD: Environment variables
-import os
-scholar = Scholaris(gemini_api_key=os.getenv("GEMINI_API_KEY"))
+from scholaris import Scholaris
 
-# ❌ BAD: Hardcoded
-scholar = Scholaris(gemini_api_key="AIzaSy...")  # Never!
+scholar = Scholaris(gemini_api_key="your-key")
+
+# Search and download papers
+papers = scholar.search_papers("transformer neural networks", max_papers=10)
+pdf_paths = scholar.download_papers(papers, output_dir="./papers")
+bibtex = scholar.generate_bibtex(pdf_paths)
 ```
 
-**Add to `.gitignore`:**
+### AI Literature Reviews
+
+```python
+review = scholar.complete_workflow(
+    topic="Machine Learning in Healthcare",
+    max_papers=10,
+    sections=["Introduction", "Methods", "Applications", "Conclusion"],
+    output_format="docx"
+)
 ```
-.env
-*.pdf
-papers/
-output/
-```
+
+<br/>
 
 ---
 
-## 🆚 Comparison
+<br/>
 
-| Tool | Search | Download | BibTeX | **Auto-Cite** | AI Review | Export |
-|------|--------|----------|--------|---------------|-----------|--------|
-| **Scholaris** | ✅ | ✅ | ✅ Dual | ✅ **With pages** | ✅ | 3 formats |
-| Zotero | ✅ | Manual | ✅ | ❌ | ❌ | Limited |
-| Mendeley | ✅ | Manual | ✅ | ❌ | ❌ | Limited |
-| Elicit AI | ✅ | ❌ | ❌ | ❌ | ✅ Limited | ❌ |
+## Quick Start
 
-**Use Scholaris when:**
-- You need full automation (search → final document)
-- You want accurate citations with page numbers
-- Working with 10+ papers
-- Need AI-assisted writing
-- Prefer code over GUI
-
----
-
-## 🧪 Testing
+### Installation
 
 ```bash
-# Install dev dependencies
-pip install -e .[dev]
-
-# Run all tests
-pytest tests/
-
-# With coverage
-pytest --cov=scholaris --cov-report=html tests/
-
-# Test auto-citation
-python3 test_citation_insertion.py
+pip install git+https://github.com/joseluissaorin/scholaris.git
 ```
 
----
+**Requirements:** Python 3.9+ · [Gemini API Key](https://makersuite.google.com/app/apikey) (free tier available)
 
-## 🤝 Contributing
+### Configuration
 
-Contributions welcome! Please:
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/improvement`)
-3. Add tests for new features
-4. Run `pytest` and ensure all pass
-5. Submit pull request
+```bash
+# .env
+GEMINI_API_KEY=your_key_here       # Required
+CROSSREF_EMAIL=your@email.com      # Optional (better page detection)
+```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
----
-
-## 📄 License
-
-MIT License - Copyright (c) 2026 José Luis Saorín Ferrer
-
-See [LICENSE](LICENSE) for full text.
+<br/>
 
 ---
 
-## 📚 Citation
+<br/>
 
-If you use Scholaris in your research:
+## Performance
+
+| Component | Metric |
+|-----------|--------|
+| Vision OCR page accuracy | 95%+ |
+| Page detection (5-strategy cascade) | 97.4% |
+| BibTeX extraction (pdf2bib + AI) | 75-85% |
+| Grounded citations | 0% page-1 fallback |
+| End-to-end (10 papers) | ~15 min |
+
+<br/>
+
+---
+
+<br/>
+
+## Comparison
+
+| Feature | Scholaris | Zotero | Mendeley | Elicit |
+|---------|:---------:|:------:|:--------:|:------:|
+| **Auto-insert citations** | **Yes** | No | No | No |
+| **Verified page numbers** | **Yes** | No | No | No |
+| **Vision OCR (scanned PDFs)** | **Yes** | No | No | No |
+| **Shareable processed format** | **Yes** | No | No | No |
+| Paper search | Yes | Yes | Yes | Yes |
+| BibTeX extraction | Yes | Yes | Yes | No |
+| AI literature review | Yes | No | No | Limited |
+
+<br/>
+
+---
+
+<br/>
+
+## Ethics & Responsible Use
+
+- **Sci-Hub:** Legal status varies by jurisdiction. Use responsibly.
+- **AI Content:** Generated reviews are first drafts. Always review and edit.
+- **Citations:** Verify accuracy before submitting academic work.
+- **API Keys:** Use environment variables, never commit to git.
+
+<br/>
+
+---
+
+<br/>
+
+## Contributing
+
+```bash
+git clone https://github.com/joseluissaorin/scholaris.git
+cd scholaris
+pip install -e .[dev]
+pytest tests/
+```
+
+PRs welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+<br/>
+
+---
+
+<br/>
+
+## Citation
 
 ```bibtex
 @software{scholaris2026,
-  title={Scholaris: Academic Research Automation Library},
+  title={Scholaris: AI-Powered Academic Citation System},
   author={Saorín Ferrer, José Luis},
   year={2026},
-  url={https://github.com/joseluissaorin/scholaris},
-  version={1.0.0}
+  url={https://github.com/joseluissaorin/scholaris}
 }
 ```
 
----
-
-## 🔗 Links
-
-- [Full Documentation](https://github.com/joseluissaorin/scholaris/wiki)
-- [Issue Tracker](https://github.com/joseluissaorin/scholaris/issues)
-- [Examples](examples/)
-- [Changelog](CHANGELOG.md)
+<br/>
 
 ---
 
-## 🙏 Acknowledgments
+<br/>
+
+## Acknowledgments
 
 Built with:
-- [PyPaperBot](https://github.com/ferru97/PyPaperBot) - Google Scholar integration
-- [pdf2bib](https://github.com/MicheleCotrufo/pdf2bib) - PDF metadata extraction
-- [Google Gemini](https://ai.google.dev/) - AI language model
-- [python-docx](https://python-docx.readthedocs.io/) - Word generation
+- [PyPaperBot](https://github.com/ferru97/PyPaperBot) — Google Scholar integration
+- [pdf2bib](https://github.com/MicheleCotrufo/pdf2bib) — PDF metadata extraction
+- [Google Gemini](https://ai.google.dev/) — Vision OCR, embeddings, and language model
+- [ChromaDB](https://www.trychroma.com/) — Vector database for RAG
+- [python-docx](https://python-docx.readthedocs.io/) — Word document generation
+
+<br/>
 
 ---
 
-<p align="center">
-  <b>Made with ❤️ for researchers, by researchers</b>
-</p>
+<div align="center">
+
+**[Documentation](https://github.com/joseluissaorin/scholaris/wiki)** · **[Issues](https://github.com/joseluissaorin/scholaris/issues)** · **[Examples](examples/)**
+
+MIT License · Copyright 2026 José Luis Saorín Ferrer
+
+</div>
