@@ -124,3 +124,4 @@ cython_debug/
 *SaaS*.pdf
 *.backup
 *.bak
+.Ulysses-Group.plist
