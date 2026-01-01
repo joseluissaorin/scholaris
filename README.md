@@ -6,11 +6,11 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.0.0-blue?style=for-the-badge)](https://github.com/joseluissaorin/scholaris)
+[![Version](https://img.shields.io/badge/Version-1.1.0-blue?style=for-the-badge)](https://github.com/joseluissaorin/scholaris)
 
-**Automatically cite your academic writing with verified page numbers.**
+**Automatically cite your academic writing with verified page numbers and intelligent attribution.**
 
-Vision OCR · Page-Aware RAG · Grounded Citations · Shareable .spdf Format
+Vision OCR · Page-Aware RAG · Temporal Logic · Framework Detection · Shareable .spdf Format
 
 [Get Started](#-quick-start) · [Auto-Citation](#-auto-citation-system) · [.spdf Format](#-shareable-spdf-format)
 
@@ -22,7 +22,7 @@ Vision OCR · Page-Aware RAG · Grounded Citations · Shareable .spdf Format
 
 ## What Makes Scholaris Different
 
-Other tools help you *organize* references. Scholaris **automatically inserts citations into your writing** with real, verified page numbers.
+Other tools help you *organize* references. Scholaris **automatically inserts citations into your writing** with real, verified page numbers—and understands when older theories are being applied to modern concepts.
 
 <table>
 <tr>
@@ -30,30 +30,70 @@ Other tools help you *organize* references. Scholaris **automatically inserts ci
 
 ### The Problem
 
-You write: *"Transformers revolutionized NLP through self-attention mechanisms."*
+You write: *"Beaugrande's textuality standards apply to how tokenizers segment language model input."*
 
 Now you need to:
 - Find which paper supports this claim
+- Realize Beaugrande (1981) predates neural NLP
+- Rewrite to show you're *applying* his framework
 - Hunt through a 50-page PDF for the right page
 - Format the citation correctly
-- Repeat for every claim in your document
 
 </td>
 <td width="50%" valign="top">
 
 ### The Solution
 
-Scholaris reads your text, matches claims to sources, and inserts citations automatically:
+Scholaris detects temporal impossibilities and rewrites for proper attribution:
 
-*"Transformers revolutionized NLP through self-attention mechanisms.* **(Vaswani et al., 2017, p. 1)**"
+*"Applying the textuality framework of Beaugrande and Dressler (1981), we can analyze how tokenizers segment language model input."* **(Beaugrande et al., 1981, p. 3)**
 
-- Page numbers verified via Vision OCR
-- Every citation grounded in retrieved evidence
-- Confidence scores show reliability
+- **Temporal logic** — detects anachronistic citations
+- **Framework rewrites** — proper attribution for theory application
+- **Page numbers verified** via Vision OCR
 
 </td>
 </tr>
 </table>
+
+<br/>
+
+---
+
+<br/>
+
+## New in v1.1: Intelligent Citation Logic
+
+### Citation Type Classification
+
+Every citation is classified into one of four types:
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **DIRECT_SUPPORT** | Source directly makes this claim | "Attention is all you need" (Vaswani, 2017) |
+| **FRAMEWORK_APPLICATION** | Applying older theory to new domain | Using Halliday (1976) to analyze Transformers |
+| **BACKGROUND_CONTEXT** | General domain knowledge | Foundational linguistics concepts |
+| **TEMPORAL_IMPOSSIBLE** | Source predates the concept | Citing 1981 paper for "BERT architecture" |
+
+### Automatic Framework Rewrites
+
+When you cite an older theory for a modern concept, Scholaris rewrites for proper attribution:
+
+**Before (problematic):**
+> La tokenización influye en la «intencionalidad simulada» del modelo. (de Beaugrande, 1981, p. 84)
+
+**After (properly attributed):**
+> Partiendo del marco de de Beaugrande y Dressler (1981), donde la intencionalidad es un estándar de textualidad, podemos analizar cómo la tokenización influye en la «intencionalidad simulada» del modelo. (de Beaugrande, 1981, p. 84)
+
+### Language-Aware Quotation Marks
+
+Automatically detects document language and uses appropriate quotation marks:
+
+| Language | Style | Example |
+|----------|-------|---------|
+| Spanish | Guillemets (no space) | «texto citado» |
+| French | Guillemets (with space) | « texte cité » |
+| English | Double quotes | "cited text" |
 
 <br/>
 
@@ -106,16 +146,17 @@ Scholaris reads your text, matches claims to sources, and inserts citations auto
 </td>
 <td width="50%" valign="top">
 
+### Intelligent Attribution
+- **Temporal detection** — catches anachronistic citations
+- **Framework rewrites** — proper attribution when applying theories
+- **Citation classification** — DIRECT_SUPPORT vs FRAMEWORK_APPLICATION
+- **Language detection** — Spanish/French/English quotation styles
+
 ### Shareable .spdf Format
 - **Process once, use forever** — no re-processing needed
 - **Single portable file** — share with colleagues instantly
 - **Contains everything** — OCR text, embeddings, page metadata
 - **Recovery features** — export previews if original PDF lost
-
-### Citation Styles & Formats
-- **APA 7th & Chicago 17th** — automatic formatting
-- **Multi-format I/O** — DOCX, PDF, Markdown, LaTeX, HTML, RTF, ODT
-- **Page ranges** — supports `pp. 123-126` for multi-page concepts
 
 </td>
 </tr>
@@ -129,7 +170,63 @@ Scholaris reads your text, matches claims to sources, and inserts citations auto
 
 ## Auto-Citation System
 
-### Basic Usage
+### Basic Usage with CitationIndex
+
+```python
+from scholaris.auto_cite import CitationIndex, CitationStyle
+
+# Load from a bibliography folder containing .spdf or .pdf files
+index = CitationIndex.from_bibliography(
+    folder="./bibliography/",
+    gemini_api_key="your-key",
+    auto_process=True,   # Process new PDFs automatically
+    save_processed=True  # Save as .spdf for future use
+)
+
+print(f"Loaded {len(index)} sources, {index.total_chunks} chunks")
+
+# Generate citations with full document context
+result = index.cite_document(
+    document_text="Your research paper text here...",
+    style=CitationStyle.APA7,
+    batch_size=3,           # Paragraphs per batch
+    min_confidence=0.65,    # Minimum confidence threshold
+    include_bibliography=True
+)
+
+# Review results
+print(f"Total citations: {result.metadata['total_citations']}")
+print(f"Framework rewrites: {result.metadata.get('framework_rewrites', 0)}")
+print(f"Sources used: {', '.join(result.metadata.get('sources_used', []))}")
+
+# Save cited document
+with open("cited_paper.md", "w") as f:
+    f.write(result.modified_document)
+```
+
+### Understanding Citation Results
+
+```python
+from collections import Counter
+
+# Analyze citation types
+type_counts = Counter()
+for citation in result.citations:
+    type_counts[str(citation.citation_type)] += 1
+
+print("Citation Types:")
+for ctype, count in type_counts.items():
+    print(f"  {ctype}: {count}")
+
+# Review framework rewrites
+rewrites = [c for c in result.citations if c.suggested_rewrite]
+for c in rewrites[:5]:
+    print(f"\nOriginal: {c.claim_text[:60]}...")
+    print(f"Rewritten: {c.suggested_rewrite[:80]}...")
+    print(f"Source: {c.citation_key} ({c.year})")
+```
+
+### Orchestrator Workflow (Multi-Format)
 
 ```python
 from scholaris.auto_cite import CitationOrchestrator
@@ -158,20 +255,6 @@ result = orchestrator.insert_citations(request)
 # Review results
 for citation in result.citations:
     print(f"{citation.citation_string} (confidence: {citation.confidence})")
-```
-
-### Multi-Format Workflow
-
-```python
-# Read DOCX → Insert citations → Export to PDF
-result = orchestrator.insert_citations_with_export(
-    input_file="draft.docx",
-    output_file="cited_paper.pdf",
-    bibliography=bibliography,
-    style=CitationStyle.APA7
-)
-
-print(f"Inserted {len(result.citations)} citations")
 ```
 
 ### Supported Formats
@@ -233,7 +316,7 @@ index = CitationIndex.from_bibliography(
 )
 
 # Generate citations
-citations = index.cite(
+result = index.cite_document(
     document_text="Your research paper text...",
     style=CitationStyle.APA7
 )
@@ -277,20 +360,22 @@ citations = index.cite(
 │  For each extracted page:                                    │
 │     1. Chunk text (500 chars, 100 overlap)                   │
 │     2. Generate Gemini embedding                             │
-│     3. Store in ChromaDB with verified page metadata         │
+│     3. Store with verified page metadata                     │
 └─────────────────────────┬────────────────────────────────────┘
                           ▼
 ┌──────────────────────────────────────────────────────────────┐
 │              PHASE 3: GROUNDED CITATION MATCHING             │
 ├──────────────────────────────────────────────────────────────┤
-│  For each claim in your document:                            │
-│     1. Embed claim → Query vector DB → Retrieve top chunks   │
+│  For each paragraph in your document:                        │
+│     1. Embed paragraph → Query index → Retrieve top chunks   │
 │     2. Each chunk has VERIFIED page from OCR metadata        │
-│     3. AI matches claim to retrieved evidence ONLY           │
-│     4. Page numbers come from retrieval, NOT guessing        │
+│     3. AI classifies citation type (direct/framework/etc)    │
+│     4. Temporal logic detects anachronistic citations        │
+│     5. Framework applications get automatic rewrites         │
 │                                                              │
 │  ✗ Cannot default to page 1 (no evidence = no citation)     │
 │  ✓ Every citation grounded in retrieved evidence            │
+│  ✓ Older theories properly attributed when applied          │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -300,24 +385,22 @@ citations = index.cite(
 
 <br/>
 
-## Scaling: Full Context vs RAG Mode
+## Temporal Logic Examples
 
-| Mode | Papers | How It Works |
-|------|--------|--------------|
-| **Full Context** | 1-50 | Loads entire bibliography into Gemini context |
-| **RAG Mode** | 50-500+ | Vector search retrieves only relevant sources |
+Scholaris understands that sources cannot support claims about concepts that didn't exist when they were written:
 
-RAG mode automatically activates for large bibliographies:
-- 80% reduction in API token usage
-- 3-5x faster processing
-- Same citation accuracy
+| Claim | Source | Problem | Solution |
+|-------|--------|---------|----------|
+| "BPE tokenization affects coherence" | Beaugrande (1981) | BPE invented 2016 | Framework application rewrite |
+| "Attention mechanisms mirror cohesion" | Halliday (1976) | Attention invented 2017 | Framework application rewrite |
+| "Transformers learn syntax" | Langacker (1987) | Transformers invented 2017 | Framework application rewrite |
+| "Self-attention is key" | Vaswani (2017) | Direct claim | Direct support citation |
 
-```python
-orchestrator = CitationOrchestrator(
-    gemini_api_key="your-key",
-    pdf_threshold=50  # Switch to RAG at 50+ papers
-)
-```
+**Modern NLP concepts requiring recent sources (2013+):**
+- Transformers, attention mechanisms (2017+)
+- Tokenization algorithms: BPE, WordPiece, SentencePiece (2016+)
+- Neural language models, embeddings (2013+)
+- BERT, GPT, LLMs (2018+)
 
 <br/>
 
@@ -325,33 +408,28 @@ orchestrator = CitationOrchestrator(
 
 <br/>
 
-## Additional Features
+## Performance
 
-Scholaris also includes tools to support the citation workflow:
+| Component | Metric |
+|-----------|--------|
+| Vision OCR page accuracy | 95%+ |
+| Page detection (5-strategy cascade) | 97.4% |
+| Temporal detection accuracy | 98%+ |
+| Framework rewrite quality | High |
+| Grounded citations | 0% page-1 fallback |
+| End-to-end (38 sources, 17k chunks) | ~2 min |
 
-### Paper Discovery & Download
+### Real-World Test Results
 
-```python
-from scholaris import Scholaris
+Processing a 9,000-word academic document against 38 bibliography sources (17,054 chunks):
 
-scholar = Scholaris(gemini_api_key="your-key")
-
-# Search and download papers
-papers = scholar.search_papers("transformer neural networks", max_papers=10)
-pdf_paths = scholar.download_papers(papers, output_dir="./papers")
-bibtex = scholar.generate_bibtex(pdf_paths)
-```
-
-### AI Literature Reviews
-
-```python
-review = scholar.complete_workflow(
-    topic="Machine Learning in Healthcare",
-    max_papers=10,
-    sections=["Introduction", "Methods", "Applications", "Conclusion"],
-    output_format="docx"
-)
-```
+| Metric | Result |
+|--------|--------|
+| Total citations generated | 151 |
+| Successful insertions | 144 |
+| Framework rewrites | 22 |
+| Unique sources used | 20 |
+| Processing time | 2.1 minutes |
 
 <br/>
 
@@ -377,21 +455,38 @@ GEMINI_API_KEY=your_key_here       # Required
 CROSSREF_EMAIL=your@email.com      # Optional (better page detection)
 ```
 
-<br/>
+### Minimal Example
 
----
+```python
+import os
+from dotenv import load_dotenv
+from scholaris.auto_cite import CitationIndex, CitationStyle
 
-<br/>
+load_dotenv()
 
-## Performance
+# Load bibliography
+index = CitationIndex.from_bibliography(
+    folder="./bib/",
+    gemini_api_key=os.getenv("GEMINI_API_KEY"),
+    auto_process=False  # Only load existing .spdf files
+)
 
-| Component | Metric |
-|-----------|--------|
-| Vision OCR page accuracy | 95%+ |
-| Page detection (5-strategy cascade) | 97.4% |
-| BibTeX extraction (pdf2bib + AI) | 75-85% |
-| Grounded citations | 0% page-1 fallback |
-| End-to-end (10 papers) | ~15 min |
+# Read your document
+with open("paper.md") as f:
+    text = f.read()
+
+# Generate citations
+result = index.cite_document(
+    document_text=text,
+    style=CitationStyle.APA7
+)
+
+# Save result
+with open("paper_cited.md", "w") as f:
+    f.write(result.modified_document)
+
+print(f"Inserted {result.metadata['total_citations']} citations")
+```
 
 <br/>
 
@@ -405,11 +500,12 @@ CROSSREF_EMAIL=your@email.com      # Optional (better page detection)
 |---------|:---------:|:------:|:--------:|:------:|
 | **Auto-insert citations** | **Yes** | No | No | No |
 | **Verified page numbers** | **Yes** | No | No | No |
+| **Temporal logic** | **Yes** | No | No | No |
+| **Framework detection** | **Yes** | No | No | No |
 | **Vision OCR (scanned PDFs)** | **Yes** | No | No | No |
 | **Shareable processed format** | **Yes** | No | No | No |
 | Paper search | Yes | Yes | Yes | Yes |
 | BibTeX extraction | Yes | Yes | Yes | No |
-| AI literature review | Yes | No | No | Limited |
 
 <br/>
 
@@ -420,8 +516,9 @@ CROSSREF_EMAIL=your@email.com      # Optional (better page detection)
 ## Ethics & Responsible Use
 
 - **Sci-Hub:** Legal status varies by jurisdiction. Use responsibly.
-- **AI Content:** Generated reviews are first drafts. Always review and edit.
+- **AI Content:** Generated text is a first draft. Always review and edit.
 - **Citations:** Verify accuracy before submitting academic work.
+- **Framework rewrites:** Review suggested rewrites for appropriateness.
 - **API Keys:** Use environment variables, never commit to git.
 
 <br/>
@@ -470,7 +567,7 @@ Built with:
 - [PyPaperBot](https://github.com/ferru97/PyPaperBot) — Google Scholar integration
 - [pdf2bib](https://github.com/MicheleCotrufo/pdf2bib) — PDF metadata extraction
 - [Google Gemini](https://ai.google.dev/) — Vision OCR, embeddings, and language model
-- [ChromaDB](https://www.trychroma.com/) — Vector database for RAG
+- [PyMuPDF](https://pymupdf.readthedocs.io/) — PDF rendering and text extraction
 - [python-docx](https://python-docx.readthedocs.io/) — Word document generation
 
 <br/>
