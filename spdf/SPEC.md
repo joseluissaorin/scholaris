@@ -1,6 +1,6 @@
 # SPDF Format Specification
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** Stable
 **Last Updated:** 2026-01-01
 
@@ -15,6 +15,7 @@ SPDF (Scholaris Processed Document Format) is a portable, self-contained file fo
 3. **Self-contained** — Contains everything needed for citation matching
 4. **Recoverable** — Optional page previews for reconstruction
 5. **Verifiable** — Source PDF hash for integrity checking
+6. **Reproducible** (v1.1) — Optional embedded model checkpoint for permanent reproducibility
 
 ### File Extensions
 
@@ -29,24 +30,25 @@ SPDF (Scholaris Processed Document Format) is a portable, self-contained file fo
 An SPDF file is a **gzip-compressed SQLite database**.
 
 ```
-┌─────────────────────────────────┐
-│         SPDF File (.spdf)       │
-├─────────────────────────────────┤
-│  ┌───────────────────────────┐  │
-│  │   Gzip Compression        │  │
-│  │   (level 6)               │  │
-│  │  ┌─────────────────────┐  │  │
-│  │  │  SQLite Database    │  │  │
-│  │  │  ┌───────────────┐  │  │  │
-│  │  │  │   metadata    │  │  │  │
-│  │  │  │   pages       │  │  │  │
-│  │  │  │   chunks      │  │  │  │
-│  │  │  │   embeddings  │  │  │  │
-│  │  │  │   previews    │  │  │  │
-│  │  │  └───────────────┘  │  │  │
-│  │  └─────────────────────┘  │  │
-│  └───────────────────────────┘  │
-└─────────────────────────────────┘
+┌──────────────────────────────────────┐
+│          SPDF File (.spdf)           │
+├──────────────────────────────────────┤
+│  ┌────────────────────────────────┐  │
+│  │   Gzip Compression (level 6)   │  │
+│  │  ┌──────────────────────────┐  │  │
+│  │  │    SQLite Database       │  │  │
+│  │  │  ┌────────────────────┐  │  │  │
+│  │  │  │   metadata         │  │  │  │
+│  │  │  │   pages            │  │  │  │
+│  │  │  │   chunks           │  │  │  │
+│  │  │  │   embeddings       │  │  │  │
+│  │  │  │   previews         │  │  │  │
+│  │  │  │   model_checkpoint │  │  │  │
+│  │  │  │   (v1.1, optional) │  │  │  │
+│  │  │  └────────────────────┘  │  │  │
+│  │  └──────────────────────────┘  │  │
+│  └────────────────────────────────┘  │
+└──────────────────────────────────────┘
 ```
 
 ## Schema (v1.0)
@@ -177,6 +179,111 @@ CREATE TABLE previews (
 - Default JPEG quality: 60
 - Purpose: Allow document recovery if original PDF is lost
 
+---
+
+## Schema Additions (v1.1)
+
+Version 1.1 adds optional model checkpoint support for full reproducibility.
+
+### Table: `model_checkpoint` (Optional)
+
+Stores an embedded model checkpoint for reproducible embeddings.
+
+```sql
+CREATE TABLE model_checkpoint (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+
+    -- Model identification
+    model_name TEXT NOT NULL,               -- "nomic-embed-text-v2-moe"
+    model_version TEXT NOT NULL,            -- "v2.0"
+    model_hash TEXT NOT NULL,               -- "sha256:abc123..."
+
+    -- Source information
+    source_url TEXT,                        -- HuggingFace URL for re-download
+    license TEXT,                           -- "Apache-2.0"
+
+    -- Quantization info
+    quantization TEXT,                      -- "Q2_K", "Q4_K_M", "F16", etc.
+    format TEXT NOT NULL,                   -- "gguf", "onnx"
+
+    -- Storage mode
+    storage_mode TEXT NOT NULL,             -- "embedded" | "external" | "api"
+
+    -- The actual model bytes (if storage_mode = "embedded")
+    -- Stored UNCOMPRESSED (GGUF is already compressed)
+    checkpoint_blob BLOB,
+    checkpoint_size INTEGER,                -- Size in bytes
+
+    -- For external mode: path or model store reference
+    external_path TEXT,                     -- "~/.spdf/models/sha256_abc123/"
+
+    -- Inference parameters
+    embedding_dim INTEGER NOT NULL,         -- 768
+    max_tokens INTEGER,                     -- 8192
+    prefix_query TEXT,                      -- "search_query: " (for asymmetric models)
+    prefix_document TEXT,                   -- "search_document: "
+    normalize_embeddings INTEGER DEFAULT 1, -- 1 = L2 normalize output
+
+    CHECK (storage_mode IN ('embedded', 'external', 'api'))
+);
+```
+
+### Additional Metadata Keys (v1.1)
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `model_storage_mode` | string | "embedded", "external", or "api" |
+| `model_checkpoint_hash` | string | SHA256 hash of the model file |
+| `model_reproducible` | string | "true" if embeddings can be regenerated |
+| `embedding_source` | string | "local" or "api" - how embeddings were generated |
+
+### Embedding Sets (v1.1)
+
+v1.1 files MAY contain multiple embedding sets for different models:
+
+```sql
+-- Extended embeddings table for multi-model support
+CREATE TABLE embeddings_v2 (
+    chunk_id INTEGER NOT NULL,
+    model_id TEXT NOT NULL,               -- References model_checkpoint or "api:model-name"
+    vector BLOB NOT NULL,
+    created_at TEXT,                      -- ISO 8601 timestamp
+    PRIMARY KEY (chunk_id, model_id),
+    FOREIGN KEY (chunk_id) REFERENCES chunks(id)
+);
+```
+
+For backward compatibility, the original `embeddings` table remains the primary source.
+`embeddings_v2` is optional and used when multiple embedding sets are stored.
+
+### Model Storage Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `embedded` | Model bytes stored in `checkpoint_blob` | Archival, sharing, offline |
+| `external` | Model in `~/.spdf/models/` by hash | Multiple files, save space |
+| `api` | No local model, API-dependent | Quick creation, smaller files |
+
+### Recommended Models
+
+| Model | Quantization | Size | Dimensions | License |
+|-------|--------------|------|------------|---------|
+| nomic-embed-text-v2-moe | Q2_K | ~280 MB | 768 | Apache 2.0 |
+| nomic-embed-text-v2-moe | Q4_K_M | ~560 MB | 768 | Apache 2.0 |
+| all-MiniLM-L6-v2 | Q4_0 | ~80 MB | 384 | Apache 2.0 |
+
+**Recommended default:** `nomic-embed-text-v2-moe` with `Q2_K` quantization.
+
+### Size Impact
+
+| Content | v1.0 (API) | v1.1 (Embedded Q2_K) |
+|---------|------------|----------------------|
+| 15-page article | ~1.5 MB | ~282 MB |
+| 50-page thesis | ~5 MB | ~285 MB |
+| 200-page book | ~15 MB | ~295 MB |
+
+The model is the dominant factor. For collections, use `external` mode to share one model across files.
+
 ## Validation Rules
 
 A valid SPDF file MUST:
@@ -184,13 +291,23 @@ A valid SPDF file MUST:
 1. **Be gzip-compressed** — Decompresses to valid SQLite database
 2. **Have all required tables** — metadata, pages, chunks, embeddings, previews
 3. **Have all required metadata keys** — As listed above
-4. **Have valid schema_version** — Currently must be 1
+4. **Have valid schema_version** — Must be 1 or 2 (for v1.1)
 5. **Have consistent counts** — `total_pages` = COUNT(pages), `total_chunks` = COUNT(chunks)
 6. **Have matching embeddings** — One embedding per chunk, same count
 7. **Have valid embedding dimensions** — Each vector = `embedding_dim * 4` bytes
 8. **Have valid foreign keys** — All chunk.page_id reference valid pages.id
 9. **Have valid confidence values** — 0.0 <= confidence <= 1.0
 10. **Have valid hash format** — source_pdf_hash starts with "sha256:"
+
+### Additional Validation (v1.1)
+
+If `model_checkpoint` table exists:
+
+11. **Valid storage_mode** — Must be "embedded", "external", or "api"
+12. **Embedded model present** — If storage_mode="embedded", checkpoint_blob must not be NULL
+13. **Model hash valid** — model_hash must start with "sha256:"
+14. **Matching dimensions** — model_checkpoint.embedding_dim must match metadata.embedding_dim
+15. **Hash verification** — SHA256(checkpoint_blob) must match model_hash (if embedded)
 
 ## Compression
 
@@ -214,12 +331,19 @@ The schema version is stored in `metadata.schema_version`.
 
 | Version | Status | Notes |
 |---------|--------|-------|
-| 1 | Current | Initial release |
+| 1 | Stable | Initial release |
+| 2 | Current | v1.1 - Model checkpoint support |
 
 ### Migration Policy
 
-- Minor updates (1.0 → 1.1): Backward compatible, new optional fields only
+- Minor updates (1.0 → 1.1): Backward compatible, new optional tables/fields only
 - Major updates (1 → 2): May require migration scripts in `schema/migrations/`
+
+### Backward Compatibility
+
+- v1.0 readers can read v1.1 files (ignore `model_checkpoint` table)
+- v1.1 readers can read v1.0 files (no model checkpoint, API-dependent embeddings)
+- Schema version 2 indicates v1.1 features are present
 
 ## Reading SPDF Files
 
@@ -388,6 +512,16 @@ Reference reader/writer implementations are in `spdf/reference/`.
 - `spdf/examples/full.spdf` — Complete example with all features
 
 ## Changelog
+
+### Version 1.1 (2026-01-01)
+
+- **Model checkpoint support** — Optional embedded GGUF model for reproducibility
+- New table: `model_checkpoint` with model bytes, hash, inference params
+- New table: `embeddings_v2` for multi-model embedding storage
+- New metadata keys: `model_storage_mode`, `model_checkpoint_hash`, `model_reproducible`
+- Three storage modes: `embedded`, `external`, `api`
+- Recommended model: `nomic-embed-text-v2-moe` Q2_K (~280 MB)
+- Full backward compatibility with v1.0
 
 ### Version 1.0 (2026-01-01)
 

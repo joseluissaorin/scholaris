@@ -240,12 +240,12 @@ class SPDFValidator:
                 conn.close()
                 return ValidationResult(valid=False, errors=errors, metadata=metadata)
 
-            # Validate schema version
+            # Validate schema version (1 = v1.0, 2 = v1.1 with model checkpoint)
             schema_version = int(metadata.get('schema_version', 0))
-            if schema_version != 1:
+            if schema_version not in (1, 2):
                 errors.append(ValidationError(
                     code="INVALID_SCHEMA_VERSION",
-                    message=f"Unsupported schema version: {schema_version}. Expected: 1",
+                    message=f"Unsupported schema version: {schema_version}. Expected: 1 or 2",
                     severity=ValidationSeverity.ERROR
                 ))
 

@@ -14,6 +14,13 @@ Example:
     print(data['metadata']['title'])
     for chunk in data['chunks']:
         print(f"Page {chunk['book_page']}: {chunk['text'][:50]}...")
+
+v1.1 Example (with embedded model):
+    data = read_spdf("file.spdf")
+    if data.has_model_checkpoint:
+        # Extract embedded model to temp file for inference
+        model_path = data.extract_model_checkpoint("/tmp/model.gguf")
+        print(f"Model extracted to: {model_path}")
 """
 
 import gzip
@@ -32,6 +39,48 @@ SUPPORTED_EXTENSIONS = [".spdf", ".scholaris", ".scpdf"]
 
 
 @dataclass
+class ModelCheckpoint:
+    """Model checkpoint information (v1.1)."""
+    model_name: str
+    model_version: str
+    model_hash: str
+    source_url: Optional[str]
+    license: Optional[str]
+    quantization: Optional[str]
+    format: str
+    storage_mode: str  # "embedded", "external", "api"
+    checkpoint_blob: Optional[bytes]
+    checkpoint_size: Optional[int]
+    external_path: Optional[str]
+    embedding_dim: int
+    max_tokens: Optional[int]
+    prefix_query: Optional[str]
+    prefix_document: Optional[str]
+    normalize_embeddings: bool
+
+    @property
+    def is_embedded(self) -> bool:
+        return self.storage_mode == "embedded" and self.checkpoint_blob is not None
+
+    @property
+    def is_external(self) -> bool:
+        return self.storage_mode == "external"
+
+    @property
+    def is_api(self) -> bool:
+        return self.storage_mode == "api"
+
+
+@dataclass
+class EmbeddingV2:
+    """Multi-model embedding entry (v1.1)."""
+    chunk_id: int
+    model_id: str
+    vector: np.ndarray
+    created_at: Optional[str]
+
+
+@dataclass
 class SPDFData:
     """Container for SPDF file contents."""
     metadata: Dict[str, str]
@@ -39,6 +88,9 @@ class SPDFData:
     chunks: List[Dict[str, Any]]
     embeddings: List[np.ndarray]
     previews: List[Dict[str, Any]]
+    # v1.1 additions
+    model_checkpoint: Optional[ModelCheckpoint] = None
+    embeddings_v2: List[EmbeddingV2] = field(default_factory=list)
 
     @property
     def citation_key(self) -> str:
@@ -60,6 +112,22 @@ class SPDFData:
     def embedding_dim(self) -> int:
         return int(self.metadata.get('embedding_dim', 768))
 
+    @property
+    def schema_version(self) -> int:
+        return int(self.metadata.get('schema_version', 1))
+
+    @property
+    def has_model_checkpoint(self) -> bool:
+        """Check if this file has a model checkpoint (v1.1)."""
+        return self.model_checkpoint is not None
+
+    @property
+    def is_reproducible(self) -> bool:
+        """Check if embeddings can be regenerated locally."""
+        if not self.model_checkpoint:
+            return False
+        return self.model_checkpoint.storage_mode in ("embedded", "external")
+
     def get_embedding_matrix(self) -> np.ndarray:
         """Get all embeddings as a numpy matrix.
 
@@ -74,6 +142,42 @@ class SPDFData:
         """Get concatenated text for a specific book page."""
         page_chunks = [c for c in self.chunks if c['book_page'] == book_page]
         return ' '.join(c['text'] for c in sorted(page_chunks, key=lambda x: x['chunk_index']))
+
+    def extract_model_checkpoint(self, output_path: Union[str, Path]) -> Optional[Path]:
+        """Extract embedded model checkpoint to a file.
+
+        Args:
+            output_path: Path to write the model file
+
+        Returns:
+            Path to extracted model, or None if not embedded
+        """
+        if not self.model_checkpoint or not self.model_checkpoint.is_embedded:
+            return None
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(self.model_checkpoint.checkpoint_blob)
+        return output_path
+
+    def get_embeddings_for_model(self, model_id: str) -> List[EmbeddingV2]:
+        """Get v2 embeddings for a specific model.
+
+        Args:
+            model_id: Model identifier to filter by
+
+        Returns:
+            List of EmbeddingV2 entries for that model
+        """
+        return [e for e in self.embeddings_v2 if e.model_id == model_id]
+
+    def list_embedding_models(self) -> List[str]:
+        """List all model IDs in embeddings_v2.
+
+        Returns:
+            List of unique model IDs
+        """
+        return list(set(e.model_id for e in self.embeddings_v2))
 
 
 class SPDFReader:
@@ -150,6 +254,47 @@ class SPDFReader:
             cursor.execute("SELECT * FROM previews ORDER BY pdf_page")
             previews = [dict(row) for row in cursor.fetchall()]
 
+            # ================================================================
+            # v1.1: Read model checkpoint (if exists)
+            # ================================================================
+            model_checkpoint = None
+            if self._table_exists(cursor, "model_checkpoint"):
+                cursor.execute("SELECT * FROM model_checkpoint WHERE id = 1")
+                row = cursor.fetchone()
+                if row:
+                    model_checkpoint = ModelCheckpoint(
+                        model_name=row["model_name"],
+                        model_version=row["model_version"],
+                        model_hash=row["model_hash"],
+                        source_url=row["source_url"],
+                        license=row["license"],
+                        quantization=row["quantization"],
+                        format=row["format"],
+                        storage_mode=row["storage_mode"],
+                        checkpoint_blob=row["checkpoint_blob"],
+                        checkpoint_size=row["checkpoint_size"],
+                        external_path=row["external_path"],
+                        embedding_dim=row["embedding_dim"],
+                        max_tokens=row["max_tokens"],
+                        prefix_query=row["prefix_query"],
+                        prefix_document=row["prefix_document"],
+                        normalize_embeddings=bool(row["normalize_embeddings"]),
+                    )
+
+            # ================================================================
+            # v1.1: Read embeddings_v2 (if exists)
+            # ================================================================
+            embeddings_v2 = []
+            if self._table_exists(cursor, "embeddings_v2"):
+                cursor.execute("SELECT * FROM embeddings_v2 ORDER BY chunk_id, model_id")
+                for row in cursor.fetchall():
+                    embeddings_v2.append(EmbeddingV2(
+                        chunk_id=row["chunk_id"],
+                        model_id=row["model_id"],
+                        vector=np.frombuffer(row["vector"], dtype=np.float32),
+                        created_at=row["created_at"],
+                    ))
+
             conn.close()
 
             return SPDFData(
@@ -158,10 +303,21 @@ class SPDFReader:
                 chunks=chunks,
                 embeddings=embeddings,
                 previews=previews,
+                model_checkpoint=model_checkpoint,
+                embeddings_v2=embeddings_v2,
             )
 
         finally:
             Path(tmp_path).unlink(missing_ok=True)
+
+    @staticmethod
+    def _table_exists(cursor: sqlite3.Cursor, table_name: str) -> bool:
+        """Check if a table exists in the database."""
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,)
+        )
+        return cursor.fetchone() is not None
 
     def read_metadata_only(self, path: Union[str, Path]) -> Dict[str, str]:
         """Read only metadata from an SPDF file (faster than full read).
@@ -212,7 +368,7 @@ class SPDFReader:
 
         metadata = self.read_metadata_only(path)
 
-        return {
+        info = {
             "citation_key": metadata.get('citation_key', ''),
             "title": metadata.get('title', ''),
             "authors": json.loads(metadata.get('authors', '[]')),
@@ -223,6 +379,14 @@ class SPDFReader:
             "embedding_dim": int(metadata.get('embedding_dim', 768)),
             "schema_version": int(metadata.get('schema_version', 1)),
         }
+
+        # v1.1 additions
+        if metadata.get('model_storage_mode'):
+            info["model_storage_mode"] = metadata.get('model_storage_mode')
+            info["model_reproducible"] = metadata.get('model_reproducible') == "true"
+            info["embedding_source"] = metadata.get('embedding_source', 'unknown')
+
+        return info
 
 
 def read_spdf(path: Union[str, Path]) -> SPDFData:
