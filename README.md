@@ -42,8 +42,10 @@ review = scholar.complete_workflow(
 ### ✍️ **Auto-Citation System** <Badge>NEW</Badge>
 - **Vision OCR**: Extract text from scanned PDFs with verified page numbers
 - **Page-Aware RAG**: Grounded citations - page numbers come from retrieval, not guessing
+- **Shareable .spdf Format**: Process PDFs once, share and reuse forever (no re-processing)
+- **Bibliography Auto-Processing**: Drop PDFs in a folder, Scholaris handles the rest
+- **Page Range Support**: Citations like `pp. 123-126` for multi-page concepts
 - **AI Metadata Extraction**: Automatically generates BibTeX when pdf2bib fails
-- **Persistent Index**: ChromaDB index persists across sessions for fast reuse
 - **CSV/JSON Export**: Detailed citation verification data for academic rigor
 - **Multiple Styles**: APA 7th & Chicago 17th Edition
 - **Multi-Format I/O**: Read/write TXT, MD, DOCX, PDF, HTML, RTF, ODT, LaTeX
@@ -527,6 +529,80 @@ export_result.to_json("citation_verification.json")
 |----------|-------------|--------------|-----------|----------|------------|---------------|
 | retrieved_chunk | 0 | beaugrande1981 | 11 | 15 | 0.83 | "We have now glanced at all seven..." |
 | citation | 0 | beaugrande1981 | 3 | 11 | 0.95 | "A TEXT will be defined as..." |
+
+### Shareable Processed PDFs (.spdf)
+
+Process PDFs once, share and reuse forever. The `.spdf` format stores everything needed for citation matching in a single compressed file.
+
+```python
+from scholaris.auto_cite import ProcessedPDF, CitationIndex, CitationStyle
+
+# === PROCESS ONCE ===
+processed = ProcessedPDF.from_pdf(
+    pdf_path="beaugrande1981.pdf",
+    citation_key="beaugrande1981",
+    authors=["R.A. de Beaugrande", "W.U. Dressler"],
+    year=1981,
+    title="Introduction to Text Linguistics",
+    gemini_api_key="your-key",
+    include_previews=True,  # Store low-res pages for recovery
+)
+processed.save("beaugrande1981.spdf")
+# ✓ Compressed SQLite: ~3-5 MB per 100 pages
+# ✓ Contains: OCR text, chunks, embeddings, previews
+# ✓ Shareable: Send to colleagues, works instantly
+
+# === LOAD INSTANTLY (no API calls) ===
+loaded = ProcessedPDF.load("beaugrande1981.spdf")
+
+# === BIBLIOGRAPHY FOLDER (auto-processing) ===
+# Just drop PDFs and .spdf files in a folder:
+#   bibliography/
+#   ├── beaugrande1981.spdf   ← Ready to use
+#   ├── halliday1976.spdf     ← Ready to use
+#   ├── newpaper2024.pdf      ← Will be auto-processed
+#   └── another.pdf           ← Will be auto-processed
+
+index = CitationIndex.from_bibliography(
+    folder="./bibliography/",
+    gemini_api_key="your-key",
+    auto_process=True,   # Process PDFs without .spdf
+    save_processed=True, # Save .spdf next to PDFs
+)
+# ✓ Loads existing .spdf files instantly
+# ✓ Processes new PDFs and saves .spdf for next time
+
+# === GENERATE CITATIONS ===
+citations = index.cite(
+    document_text="Your research paper text...",
+    style=CitationStyle.APA7,
+)
+
+for cit in citations:
+    print(cit.citation_string)
+# (Beaugrande et al., 1981, p. 3)
+# (Halliday, 1976, pp. 322-325)
+```
+
+**Supported Extensions:** `.spdf`, `.scholaris`, `.scpdf`
+
+**File Contents:**
+| Component | Description | Size |
+|-----------|-------------|------|
+| Metadata | Citation key, authors, year, title, hashes | ~1 KB |
+| OCR Pages | Full text with verified page numbers | ~10 KB/page |
+| Chunks | Text chunks for embedding search | ~5 KB/page |
+| Embeddings | 768-dim vectors for each chunk | ~3 KB/chunk |
+| Previews | Low-res JPEG thumbnails (optional) | ~30 KB/page |
+
+**Recovery Features:**
+```python
+# If original PDF is lost, recover from .spdf:
+processed = ProcessedPDF.load("beaugrande1981.spdf")
+processed.export_preview_pdf("recovered.pdf")  # Low-res but readable
+processed.export_text("full_text.txt")         # Complete OCR text
+processed.verify_hash("original.pdf")          # Verify against original
+```
 
 ### Large Bibliography with RAG Mode
 ```python
