@@ -7,11 +7,14 @@ Key Features:
 - Vision OCR for scanned PDFs with verified page numbers
 - Page-Aware RAG with grounded citation matching
 - AI-powered metadata extraction when pdf2bib fails
-- Persistent ChromaDB index for reuse across sessions
+- Shareable .spdf files for processed PDFs
+- Bibliography folder auto-processing
 - Support for bibliographies of 1-500+ PDFs
 - Preview mode for citation validation before insertion
 
 Main Components:
+- ProcessedPDF: Shareable processed PDF format (.spdf)
+- CitationIndex: Multi-source citation index with auto-processing
 - CitationOrchestrator: Main controller with Vision OCR + Page-Aware RAG
 - VisionOCRProcessor: Gemini Vision OCR for scanned PDFs
 - PageAwareRAG: ChromaDB with verified page metadata
@@ -40,6 +43,19 @@ from .citation_export import (
     export_citations_to_csv,
 )
 
+# Shareable processed PDF format
+from .processed_pdf import (
+    ProcessedPDF,
+    SPDFMetadata,
+    SPDFPage,
+    SPDFChunk,
+    SPDFPreview,
+    SUPPORTED_EXTENSIONS as SPDF_EXTENSIONS,
+)
+
+# Citation index for multi-source queries
+from .citation_index import CitationIndex
+
 # Optional components (require chromadb)
 try:
     from .vision_ocr import VisionOCRProcessor, process_pdf_vision
@@ -63,6 +79,15 @@ __all__ = [
     "OCRPage",
     "PageChunk",
     "RetrievedChunk",
+    # Shareable processed PDF format (.spdf)
+    "ProcessedPDF",
+    "SPDFMetadata",
+    "SPDFPage",
+    "SPDFChunk",
+    "SPDFPreview",
+    "SPDF_EXTENSIONS",
+    # Citation index for multi-source queries
+    "CitationIndex",
     # Main orchestrator
     "CitationOrchestrator",
     "PageOffsetDetector",
