@@ -60,6 +60,7 @@ class SPDFMetadata:
     pages: str = ""   # Page range (e.g., "1-34")
     doi: str = ""     # Digital Object Identifier
     url: str = ""     # URL if available
+    language: str = ""  # ISO 639-1 language code (e.g., "en", "es", "de", "fr")
 
 
 @dataclass
@@ -371,6 +372,14 @@ class ProcessedPDF:
                 schema_version=int(meta_dict.get('schema_version', 1)),
                 total_pages=int(meta_dict.get('total_pages', 0)),
                 total_chunks=int(meta_dict.get('total_chunks', 0)),
+                # Extended bibliographic fields
+                source=meta_dict.get('source', ''),
+                volume=meta_dict.get('volume', ''),
+                issue=meta_dict.get('issue', ''),
+                pages=meta_dict.get('pages', ''),
+                doi=meta_dict.get('doi', ''),
+                url=meta_dict.get('url', ''),
+                language=meta_dict.get('language', ''),
             )
 
             # Load pages
@@ -505,6 +514,14 @@ class ProcessedPDF:
                 ('schema_version', str(self.metadata.schema_version)),
                 ('total_pages', str(len(self.pages))),
                 ('total_chunks', str(len(self.chunks))),
+                # Extended bibliographic fields
+                ('source', self.metadata.source),
+                ('volume', self.metadata.volume),
+                ('issue', self.metadata.issue),
+                ('pages', self.metadata.pages),
+                ('doi', self.metadata.doi),
+                ('url', self.metadata.url),
+                ('language', self.metadata.language),
             ]
             cursor.executemany("INSERT INTO metadata (key, value) VALUES (?, ?)", meta_items)
 

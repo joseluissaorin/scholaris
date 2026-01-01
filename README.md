@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.1.0-blue?style=for-the-badge)](https://github.com/joseluissaorin/scholaris)
+[![Version](https://img.shields.io/badge/Version-1.2.0-blue?style=for-the-badge)](https://github.com/joseluissaorin/scholaris)
 
 **Automatically cite your academic writing with verified page numbers and intelligent attribution.**
 
@@ -94,6 +94,42 @@ Automatically detects document language and uses appropriate quotation marks:
 | Spanish | Guillemets (no space) | «texto citado» |
 | French | Guillemets (with space) | « texte cité » |
 | English | Double quotes | "cited text" |
+
+<br/>
+
+---
+
+<br/>
+
+## New in v1.2: Cross-Lingual & Improved Matching
+
+### Cross-Lingual Citation Matching
+
+Documents in one language can now cite sources in another language seamlessly:
+
+- **Spanish document + English sources** — semantic matching across languages
+- **Language metadata** — each .spdf file stores its detected language (ISO 639-1)
+- **Automatic detection** — language inferred from text content during processing
+
+**Example:**
+> Spanish claim: "La cohesión léxica conecta elementos textuales"
+> English evidence: "Lexical cohesion creates connections between textual elements"
+> → Correctly matched and cited!
+
+### Improved Markdown Handling
+
+Citations now work correctly with markdown-formatted text:
+
+| Pattern | Example | Status |
+|---------|---------|--------|
+| Italics around words | `*Centering*` | ✓ Matched |
+| Italics around phrases | `*in silico*` | ✓ Matched |
+| Bold text | `**important**` | ✓ Matched |
+| Mixed formatting | `«sujeto *in silico*»` | ✓ Matched |
+
+### Text Corruption Fix
+
+Framework application rewrites now correctly calculate replacement boundaries, preventing mid-word insertions like `"altern (citation)as"`.
 
 <br/>
 
@@ -326,11 +362,12 @@ result = index.cite_document(
 
 | Content | Description |
 |---------|-------------|
-| **Metadata** | Citation key, authors, year, title, source PDF hash |
+| **Metadata** | Citation key, authors, year, title, language, source PDF hash |
 | **Pages** | PDF page ↔ book page mapping, OCR confidence |
 | **Chunks** | Text segments with verified page numbers |
 | **Embeddings** | 768-dim vectors for semantic search |
 | **Previews** | Optional low-res page images for recovery |
+| **Language** | ISO 639-1 code (en, es, fr, de) for cross-lingual matching |
 
 **File sizes:** ~1.5 MB per 15-page article, ~15 MB per 200-page book
 

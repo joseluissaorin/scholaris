@@ -401,7 +401,7 @@ class CitationIndex:
 
         from .citation_engine import GeminiCitationEngine
 
-        engine = GeminiCitationEngine(api_key=self._gemini_api_key)
+        engine = GeminiCitationEngine(api_key=self._gemini_api_key, model="gemini-3-flash-preview")
 
         # Create a RAG-like interface for the engine
         index_rag = _CitationIndexRAGAdapter(self)
@@ -650,7 +650,7 @@ class CitationIndex:
 
         from .citation_engine import GeminiCitationEngine
 
-        engine = GeminiCitationEngine(api_key=self._gemini_api_key)
+        engine = GeminiCitationEngine(api_key=self._gemini_api_key, model="gemini-3-flash-preview")
         index_rag = _CitationIndexRAGAdapter(self)
 
         # Generate citations using grounded RAG
@@ -819,7 +819,7 @@ class CitationIndex:
                 continue
 
             # Try to find the claim in the document
-            pos = self._find_claim_position(modified, claim)
+            pos, matched_length = self._find_claim_position(modified, claim)
 
             if pos == -1:
                 logger.warning(f"Could not locate claim: '{claim[:60]}...'")
@@ -830,10 +830,11 @@ class CitationIndex:
             if citation_type == CitationType.FRAMEWORK_APPLICATION and suggested_rewrite:
                 # REWRITE: Replace the claim with the suggested rewrite
                 # The suggested_rewrite should already contain the citation embedded
+                # Use matched_length instead of len(claim) to handle markdown differences
                 insertions.append((
                     pos,  # start position
                     "rewrite",
-                    claim,  # old text to replace
+                    matched_length,  # actual length of text to replace in document
                     suggested_rewrite,  # new text (with citation)
                     citation
                 ))
@@ -843,7 +844,8 @@ class CitationIndex:
 
             else:
                 # DIRECT SUPPORT: Just insert citation after claim
-                insert_pos = pos + len(claim)
+                # Use matched_length instead of len(claim) to handle markdown differences
+                insert_pos = pos + matched_length
 
                 if style == CitationStyle.APA7:
                     formatted_cite = f" {cite_str}"
@@ -864,13 +866,15 @@ class CitationIndex:
         insertions.sort(key=lambda x: x[0], reverse=True)
 
         # Apply modifications from end to start
-        for pos, op_type, old_text, new_text, _ in insertions:
+        for pos, op_type, length_or_empty, new_text, _ in insertions:
             if op_type == "rewrite":
-                # Replace old_text with new_text
-                end_pos = pos + len(old_text)
+                # Replace text of given length with new_text
+                # length_or_empty is the matched_length (integer) for rewrites
+                end_pos = pos + length_or_empty
                 modified = modified[:pos] + new_text + modified[end_pos:]
             else:
                 # Insert new_text at position
+                # length_or_empty is "" for inserts (unused)
                 modified = modified[:pos] + new_text + modified[pos:]
 
         stats = {
@@ -882,7 +886,7 @@ class CitationIndex:
 
         return modified, stats
 
-    def _find_claim_position(self, document: str, claim: str) -> int:
+    def _find_claim_position(self, document: str, claim: str) -> tuple:
         """Find the position of a claim in the document with fallbacks.
 
         Args:
@@ -890,12 +894,14 @@ class CitationIndex:
             claim: The claim text to find
 
         Returns:
-            Position of claim start, or -1 if not found
+            Tuple of (position, matched_length) or (-1, 0) if not found.
+            matched_length is the actual length of text in the document that was matched,
+            which may differ from len(claim) when markdown formatting is present.
         """
         # Try 1: Exact match
         pos = document.find(claim)
         if pos != -1:
-            return pos
+            return (pos, len(claim))
 
         # Try 2: Normalized whitespace (collapse multiple spaces/newlines)
         normalized_claim = ' '.join(claim.split())
@@ -913,15 +919,86 @@ class CitationIndex:
                     break
                 if not (char.isspace() and (i > 0 and document[i-1].isspace())):
                     char_count += 1
-            return orig_pos
+            return (orig_pos, len(claim))
 
-        # Try 3: Case-insensitive search (last resort)
+        # Try 3: Case-insensitive search
         lower_pos = document.lower().find(claim.lower())
         if lower_pos != -1:
             logger.warning(f"Used case-insensitive match for: '{claim[:40]}...'")
-            return lower_pos
+            return (lower_pos, len(claim))
 
-        return -1
+        # Try 4: Strip markdown formatting and search with regex
+        # This handles cases like *Centering* vs Centering
+        import re
+
+        # Create a regex pattern that matches the claim with optional markdown
+        # around each word
+        def make_markdown_tolerant_pattern(text: str) -> str:
+            """Create a regex that matches text with optional markdown formatting."""
+            words = text.split()
+            pattern_parts = []
+            for word in words:
+                # Escape regex special chars in the word
+                escaped = re.escape(word)
+                # Allow optional markdown formatting around each word
+                # Matches: *word*, **word**, _word_, __word__, or plain word
+                pattern_parts.append(r'[*_]{0,2}' + escaped + r'[*_]{0,2}')
+            # Join with flexible whitespace
+            return r'\s+'.join(pattern_parts)
+
+        try:
+            pattern = make_markdown_tolerant_pattern(claim)
+            match = re.search(pattern, document, re.IGNORECASE)
+            if match:
+                logger.warning(f"Used markdown-tolerant match for: '{claim[:40]}...'")
+                # Return the actual matched length from the document
+                matched_text = match.group(0)
+                return (match.start(), len(matched_text))
+        except re.error:
+            pass  # Fallback if regex fails
+
+        # Try 5: Strip ALL markdown from both claim and document, then map back
+        # This handles cases like "*in silico*" vs "in silico" (markdown around phrases)
+        def strip_markdown(text: str) -> tuple:
+            """Strip markdown and return (stripped_text, position_map).
+            position_map[i] = original position of stripped char i
+            """
+            result = []
+            pos_map = []
+            i = 0
+            while i < len(text):
+                # Skip markdown characters
+                if text[i] in '*_':
+                    # Check for ** or __
+                    if i + 1 < len(text) and text[i+1] == text[i]:
+                        i += 2
+                    else:
+                        i += 1
+                else:
+                    result.append(text[i])
+                    pos_map.append(i)
+                    i += 1
+            return (''.join(result), pos_map)
+
+        stripped_claim, _ = strip_markdown(claim)
+        stripped_doc, doc_pos_map = strip_markdown(document)
+
+        # Try to find stripped claim in stripped document
+        stripped_pos = stripped_doc.lower().find(stripped_claim.lower())
+        if stripped_pos != -1:
+            # Map back to original document position
+            orig_start = doc_pos_map[stripped_pos]
+            # Find the end position by mapping the end of the match
+            stripped_end = stripped_pos + len(stripped_claim)
+            if stripped_end < len(doc_pos_map):
+                orig_end = doc_pos_map[stripped_end]
+            else:
+                orig_end = len(document)
+            matched_length = orig_end - orig_start
+            logger.warning(f"Used markdown-stripped match for: '{claim[:40]}...'")
+            return (orig_start, matched_length)
+
+        return (-1, 0)
 
     def _generate_bibliography(
         self,

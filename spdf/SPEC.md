@@ -83,6 +83,7 @@ CREATE TABLE metadata (
 | `schema_version` | integer (as string) | Schema version (currently 1) |
 | `total_pages` | integer (as string) | Number of pages |
 | `total_chunks` | integer (as string) | Number of chunks |
+| `language` | string | ISO 639-1 language code (e.g., "en", "es", "de", "fr") |
 
 ### Table: `pages`
 

@@ -11,6 +11,8 @@
 3. **Temporal logic** — Detects anachronistic citations (e.g., citing 1981 paper for BERT)
 4. **Framework rewrites** — Proper attribution when applying older theories to new domains
 5. **Shareable .spdf format** — Process once, share and reuse forever
+6. **Cross-lingual matching** — Spanish documents cite English sources seamlessly (v1.2)
+7. **Markdown-tolerant** — Handles `*italics*`, `**bold**` in claim matching (v1.2)
 
 ## Architecture
 
@@ -102,13 +104,15 @@ Gzip-compressed SQLite database containing:
 
 | Table | Contents |
 |-------|----------|
-| `metadata` | Citation key, authors, year, title, hash |
+| `metadata` | Citation key, authors, year, title, language (ISO 639-1), hash |
 | `pages` | PDF page ↔ book page mapping, OCR text |
 | `chunks` | Text segments with page numbers, chunk_index |
 | `embeddings` | 768-dim vectors as binary blobs |
 | `previews` | Optional low-res page images (JPEG) |
 
 **Extensions:** `.spdf`, `.scholaris`, `.scpdf`
+
+**Language field (v1.2):** Each SPDF stores detected language code (en, es, fr, de) for cross-lingual citation matching.
 
 ## Key Algorithms
 
@@ -159,6 +163,30 @@ french_indicators = ["le", "la", "les", "de", "des", "du"]
 # French: « texte » (with space)
 # English: "text"
 ```
+
+### Cross-Lingual Matching (v1.2)
+
+Documents in one language can cite sources in another:
+
+```python
+# Document language detected from text
+# Source languages detected from chunk samples
+# When languages differ, prompt includes semantic equivalences:
+#   - Spanish "cohesión léxica" = English "lexical cohesion"
+#   - Spanish "coherencia textual" = English "textual coherence"
+```
+
+### Markdown-Tolerant Claim Matching (v1.2)
+
+The `_find_claim_position()` function uses a 5-try strategy:
+
+1. **Exact match** — `document.find(claim)`
+2. **Case-insensitive** — `document.lower().find(claim.lower())`
+3. **Unicode-normalized** — Handle special characters
+4. **Regex with markdown** — Match `*text*` as `text`
+5. **Full markdown strip** — Strip all `*_` markers, build position map, match, then map back to original positions
+
+**Key fix:** Returns `(position, matched_length)` tuple to handle markdown markers correctly when calculating insertion points.
 
 ## Common Tasks
 
@@ -233,9 +261,9 @@ CROSSREF_EMAIL=your@email.com      # Optional (better metadata)
 ```python
 engine = GeminiCitationEngine(
     api_key="your-key",
-    model="gemini-2.0-flash",      # Or gemini-1.5-pro
-    aggressive_mode=True,           # More citations
-    paragraph_mode=True,            # Batch processing
+    model="gemini-3-flash-preview",  # Default: gemini-3-flash-preview
+    aggressive_mode=True,             # More citations
+    paragraph_mode=True,              # Batch processing
 )
 ```
 
@@ -279,6 +307,18 @@ if citation_key in self._sources:
 **Cause:** API rate limits or malformed PDFs.
 
 **Solution:** Add retry logic and check PDF validity before processing.
+
+### Text corruption in framework rewrites (fixed in v1.2)
+
+**Cause:** `_find_claim_position()` returned only position, but markdown markers (`*italics*`) caused length mismatch between claim and actual document text.
+
+**Solution:** Function now returns `(position, matched_length)` tuple. Insertion logic uses `matched_length` instead of `len(claim)`.
+
+### Cross-lingual citations not matching (fixed in v1.2)
+
+**Cause:** Spanish document claims not matching English source evidence due to language barrier.
+
+**Solution:** Added language detection to SPDF metadata and cross-lingual semantic matching instructions to citation engine prompt.
 
 ## API Reference
 

@@ -1232,8 +1232,55 @@ This document is in ENGLISH. Use standard English quotation marks:
 - Example: "cited text"
 """
 
+        # Determine source languages from chunks
+        source_languages = set()
+        for c in chunks:
+            # Check for language indicators in chunk text
+            chunk_lower = c.text.lower()[:200] if c.text else ""
+            if any(w in chunk_lower for w in ["the ", " is ", " are ", " of ", " and ", " that "]):
+                source_languages.add("en")
+            if any(w in chunk_lower for w in [" el ", " la ", " los ", " de ", " que ", " es "]):
+                source_languages.add("es")
+            if any(w in chunk_lower for w in [" le ", " la ", " les ", " du ", " des ", " est "]):
+                source_languages.add("fr")
+            if any(w in chunk_lower for w in [" der ", " die ", " das ", " und ", " ist "]):
+                source_languages.add("de")
+
+        # Build cross-lingual instruction if needed
+        cross_lingual_instruction = ""
+        doc_lang_code = {"spanish": "es", "french": "fr", "english": "en"}.get(detected_language, "en")
+        other_languages = source_languages - {doc_lang_code}
+
+        if other_languages:
+            lang_names = {"en": "English", "es": "Spanish", "fr": "French", "de": "German"}
+            other_lang_names = ", ".join(lang_names.get(l, l) for l in other_languages)
+            cross_lingual_instruction = f"""
+=== CROSS-LINGUAL CITATION MATCHING ===
+
+IMPORTANT: This document is in {detected_language.upper()}, but many sources are in {other_lang_names}.
+
+You MUST match claims SEMANTICALLY across languages:
+- Spanish "coherencia textual" = English "textual coherence"
+- Spanish "cohesión léxica" = English "lexical cohesion"
+- Spanish "tokenización" = English "tokenization"
+- Spanish "modelo de lenguaje" = English "language model"
+- Spanish "espacio latente" = English "latent space"
+- Spanish "aparato perceptivo" = English "perceptual apparatus"
+- Spanish "gramática cognitiva" = English "cognitive grammar"
+- Spanish "macroestructuras" = English "macrostructures"
+
+When a Spanish claim discusses concepts from an English source, CITE THE ENGLISH SOURCE.
+The evidence text will be in English, but it supports the Spanish claim semantically.
+
+Example:
+- Spanish claim: "La cohesión léxica conecta elementos textuales"
+- English evidence: "Lexical cohesion creates connections between textual elements"
+- These are THE SAME CLAIM - cite the English source!
+"""
+
         prompt = f"""You are an expert academic citation assistant with deep knowledge of citation logic and academic integrity. Your task is to identify claims, CLASSIFY the citation relationship, and potentially REWRITE sentences for proper attribution.
 {quote_instruction}
+{cross_lingual_instruction}
 
 === FULL DOCUMENT CONTEXT ===
 
