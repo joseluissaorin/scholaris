@@ -1,20 +1,19 @@
 """Citation orchestrator - main controller for auto-citation system.
 
 This module handles the complete citation insertion workflow:
-1. Load and process bibliography PDFs
-2. Analyze user document to identify claims needing citations
-3. Match claims to relevant sources using Gemini 2.0 Flash
+1. Load and process bibliography PDFs with Vision OCR
+2. Index PDFs in Page-Aware RAG with verified page numbers
+3. Analyze user document with grounded citation matching
 4. Insert formatted citations (APA 7th or Chicago 17th)
 5. Generate preview for user validation
 
-Week 2 Implementation: Full Context Mode with intelligent citation matching.
-Week 4 Enhancement: Multi-format input/output support.
+ENHANCED: Vision OCR + Page-Aware RAG for accurate page citations.
 """
 
 import logging
 import re
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, Union, Tuple
 
 from .models import (
     CitationRequest,
@@ -22,13 +21,27 @@ from .models import (
     CitationStyle,
     PageAwarePDF,
     Citation,
+    OCRPage,
 )
 from .pdf_processor import PDFProcessor
 from .formatters import format_citation
-from .citation_engine import GeminiCitationEngine
+from .citation_engine import GeminiCitationEngine, GroundedCitation
 from .document_formats import DocumentFormatHandler, DocumentFormat
 
-# RAG engine (optional - only if ChromaDB installed)
+# Vision OCR and Page-Aware RAG (new components)
+try:
+    from .vision_ocr import VisionOCRProcessor
+    from .page_aware_rag import PageAwareRAG
+    from .metadata_extractor import MetadataExtractor, batch_extract_metadata
+    VISION_RAG_AVAILABLE = True
+except ImportError:
+    VISION_RAG_AVAILABLE = False
+    VisionOCRProcessor = None
+    PageAwareRAG = None
+    MetadataExtractor = None
+    batch_extract_metadata = None
+
+# Legacy RAG engine (optional - only if ChromaDB installed)
 try:
     from .rag_engine import RAGCitationEngine
     RAG_AVAILABLE = True
@@ -51,8 +64,10 @@ class CitationOrchestrator:
         gemini_api_key: str,
         pdf_threshold: int = 50,
         use_rag_mode: bool = True,
+        use_grounded_rag: bool = True,  # NEW: Use Vision OCR + Page-Aware RAG
         mistral_api_key: Optional[str] = None,
         crossref_email: Optional[str] = None,
+        chroma_db_path: str = "./chroma_citations",
     ):
         """Initialize citation orchestrator.
 
@@ -60,16 +75,20 @@ class CitationOrchestrator:
             gemini_api_key: API key for Google Gemini
             pdf_threshold: Threshold for switching to RAG mode (default: 50)
             use_rag_mode: Whether to use RAG for large bibliographies
+            use_grounded_rag: Use Vision OCR + Page-Aware RAG (recommended)
             mistral_api_key: API key for Mistral Pixtral (OCR)
             crossref_email: Email for Crossref API polite pool
+            chroma_db_path: Path to ChromaDB database for Page-Aware RAG
         """
         self.gemini_api_key = gemini_api_key
         self.pdf_threshold = pdf_threshold
         self.use_rag_mode = use_rag_mode
+        self.use_grounded_rag = use_grounded_rag
         self.mistral_api_key = mistral_api_key
         self.crossref_email = crossref_email
+        self.chroma_db_path = chroma_db_path
 
-        # Initialize PDF processor
+        # Initialize PDF processor (legacy mode)
         from .page_offset import PageOffsetDetector
         page_offset_detector = PageOffsetDetector(
             crossref_email=crossref_email,
@@ -78,25 +97,37 @@ class CitationOrchestrator:
         )
         self.pdf_processor = PDFProcessor(page_offset_detector=page_offset_detector)
 
-        # Initialize Gemini citation engine (Full Context Mode)
+        # Initialize Gemini citation engine
         self.citation_engine = GeminiCitationEngine(api_key=gemini_api_key)
 
-        # Initialize RAG citation engine (for large bibliographies)
+        # Initialize Vision OCR processor (NEW)
+        self.vision_ocr = None
+        if use_grounded_rag and VISION_RAG_AVAILABLE:
+            self.vision_ocr = VisionOCRProcessor(gemini_api_key)
+            logger.info("Vision OCR processor initialized")
+
+        # Initialize Page-Aware RAG (NEW)
+        self.page_rag = None
+        if use_grounded_rag and VISION_RAG_AVAILABLE:
+            self.page_rag = PageAwareRAG(gemini_api_key, db_path=chroma_db_path)
+            logger.info(f"Page-Aware RAG initialized at {chroma_db_path}")
+
+        # Initialize legacy RAG citation engine (for large bibliographies)
         self.rag_engine = None
-        if use_rag_mode:
+        if use_rag_mode and not use_grounded_rag:
             if RAG_AVAILABLE:
                 self.rag_engine = RAGCitationEngine(api_key=gemini_api_key)
-                logger.info("RAG engine initialized for large bibliographies")
+                logger.info("Legacy RAG engine initialized")
             else:
                 logger.warning(
                     "RAG mode requested but ChromaDB not installed. "
                     "Install with: pip install chromadb"
                 )
-                logger.warning("Falling back to Full Context Mode for all bibliographies")
 
         logger.info(
             f"CitationOrchestrator initialized: "
-            f"pdf_threshold={pdf_threshold}, rag_mode={use_rag_mode and RAG_AVAILABLE}"
+            f"grounded_rag={use_grounded_rag and VISION_RAG_AVAILABLE}, "
+            f"legacy_rag={use_rag_mode and RAG_AVAILABLE and not use_grounded_rag}"
         )
 
     def insert_citations(
@@ -234,6 +265,337 @@ class CitationOrchestrator:
         )
 
         return result
+
+    def insert_citations_grounded(
+        self,
+        document_text: str,
+        style: CitationStyle = CitationStyle.APA7,
+        min_confidence: float = 0.5,
+        preview_mode: bool = False,
+    ) -> CitationResult:
+        """Insert citations using grounded Page-Aware RAG.
+
+        This method uses verified page numbers from Vision OCR.
+        Must call process_bibliography_with_ocr() first to populate the RAG.
+
+        Args:
+            document_text: Document to cite
+            style: Citation style (APA7 or Chicago17)
+            min_confidence: Minimum confidence threshold
+            preview_mode: If True, preview only
+
+        Returns:
+            CitationResult with grounded citations
+        """
+        if not self.page_rag:
+            raise RuntimeError(
+                "Page-Aware RAG not initialized. "
+                "Call process_bibliography_with_ocr() first."
+            )
+
+        logger.info(f"Analyzing document with grounded RAG ({len(document_text)} chars)")
+
+        # Use grounded RAG mode
+        try:
+            grounded_citations = self.citation_engine.analyze_with_grounded_rag(
+                document_text=document_text,
+                rag=self.page_rag,
+                style=style,
+            )
+        except Exception as e:
+            logger.error(f"Grounded RAG citation analysis failed: {e}")
+            return CitationResult(
+                modified_document=document_text,
+                citations=[],
+                warnings=[f"Citation analysis failed: {str(e)}"],
+                metadata={'mode': 'Grounded RAG', 'error': str(e)}
+            )
+
+        # Filter by confidence
+        citations = [c for c in grounded_citations if c.confidence >= min_confidence]
+
+        logger.info(
+            f"Generated {len(grounded_citations)} grounded citations, "
+            f"{len(citations)} meet threshold (≥{min_confidence})"
+        )
+
+        warnings = []
+        if len(citations) < len(grounded_citations):
+            warnings.append(
+                f"Filtered {len(grounded_citations) - len(citations)} low-confidence citations"
+            )
+
+        # Insert citations or preview
+        if preview_mode:
+            modified_document = document_text
+            preview_data = self._generate_grounded_preview(document_text, citations, style)
+        else:
+            modified_document = self._insert_grounded_citations(
+                document=document_text,
+                citations=citations,
+                style=style,
+            )
+            preview_data = {}
+
+        return CitationResult(
+            modified_document=modified_document,
+            citations=citations,
+            preview_data=preview_data,
+            warnings=warnings,
+            metadata={
+                'mode': 'Grounded RAG',
+                'total_chunks': self.page_rag.get_total_chunks(),
+                'indexed_sources': len(self.page_rag.get_indexed_sources()),
+                'total_suggested': len(grounded_citations),
+                'total_inserted': len(citations),
+                'confidence_threshold': min_confidence,
+                'style': style.value,
+                'preview_mode': preview_mode,
+            }
+        )
+
+    def process_bibliography_with_ocr(
+        self,
+        pdf_paths: List[str],
+        citation_keys: List[str],
+        references: List[Any],
+        force_reindex: bool = False,
+        skip_indexed: bool = True,
+        progress_callback: Optional[callable] = None,
+    ) -> Dict[str, int]:
+        """Process bibliography with Vision OCR and index in Page-Aware RAG.
+
+        This is the recommended method for accurate page citations.
+        Each PDF is processed with Vision OCR to extract:
+        - Verified page numbers from the actual page images
+        - Full text content (even for scanned PDFs)
+        - Landscape scan detection (2 pages per PDF page)
+
+        Args:
+            pdf_paths: List of PDF file paths
+            citation_keys: List of citation keys matching the PDFs
+            references: List of Reference objects with metadata
+            force_reindex: If True, clear existing index and rebuild
+            skip_indexed: If True, skip sources already in index
+            progress_callback: Optional callback(phase, source, current, total)
+
+        Returns:
+            Dictionary of {citation_key: chunks_indexed}
+        """
+        if not self.vision_ocr or not self.page_rag:
+            raise RuntimeError(
+                "Vision OCR and Page-Aware RAG not available. "
+                "Ensure use_grounded_rag=True and dependencies installed."
+            )
+
+        if force_reindex:
+            logger.info("Clearing existing RAG index...")
+            self.page_rag.clear_collection()
+            skip_indexed = False  # Don't skip if we just cleared
+
+        indexed_counts = {}
+        total_sources = len(pdf_paths)
+        skipped_count = 0
+
+        for i, (pdf_path, citation_key, reference) in enumerate(
+            zip(pdf_paths, citation_keys, references)
+        ):
+            # Check if already indexed
+            if skip_indexed and self.page_rag.is_source_indexed(citation_key):
+                existing_chunks = self.page_rag.get_indexed_source_count(citation_key)
+                logger.info(f"Skipping {citation_key} (already indexed: {existing_chunks} chunks)")
+                indexed_counts[citation_key] = existing_chunks
+                skipped_count += 1
+                if progress_callback:
+                    progress_callback("skip", citation_key, i + 1, total_sources)
+                continue
+
+            if progress_callback:
+                progress_callback("ocr", citation_key, i + 1, total_sources)
+
+            logger.info(f"Processing {citation_key} ({i+1}/{total_sources})...")
+
+            try:
+                # Step 1: Vision OCR
+                ocr_pages = self.vision_ocr.process_pdf(
+                    pdf_path=pdf_path,
+                    progress_callback=lambda cur, tot: progress_callback(
+                        "ocr_page", citation_key, cur, tot
+                    ) if progress_callback else None,
+                )
+
+                logger.info(f"  OCR: {len(ocr_pages)} pages extracted")
+
+                # Step 2: Index in Page-Aware RAG
+                if progress_callback:
+                    progress_callback("index", citation_key, i + 1, total_sources)
+
+                chunks_added = self.page_rag.index_pdf(
+                    citation_key=citation_key,
+                    ocr_pages=ocr_pages,
+                    authors=reference.authors if hasattr(reference, 'authors') else [],
+                    year=reference.year if hasattr(reference, 'year') else 0,
+                    title=reference.title if hasattr(reference, 'title') else "",
+                )
+
+                indexed_counts[citation_key] = chunks_added
+                logger.info(f"  Indexed: {chunks_added} chunks")
+
+            except Exception as e:
+                logger.error(f"Failed to process {citation_key}: {e}")
+                indexed_counts[citation_key] = 0
+
+        total_chunks = sum(indexed_counts.values())
+        logger.info(
+            f"✓ Bibliography indexed: {len(indexed_counts)} sources, "
+            f"{total_chunks} total chunks "
+            f"({skipped_count} skipped - already indexed)"
+        )
+
+        return indexed_counts
+
+    def process_pdfs_auto(
+        self,
+        pdf_paths: List[str],
+        existing_metadata: Optional[List[Dict[str, Any]]] = None,
+        force_reindex: bool = False,
+        progress_callback: Optional[callable] = None,
+    ) -> Tuple[Dict[str, int], List[Dict[str, Any]]]:
+        """Process PDFs with automatic metadata extraction.
+
+        This method:
+        1. Extracts or completes metadata using AI (from first pages)
+        2. Processes PDFs with Vision OCR
+        3. Indexes in Page-Aware RAG
+
+        Args:
+            pdf_paths: List of PDF file paths
+            existing_metadata: Optional list of partial metadata dicts
+            force_reindex: If True, reprocess all PDFs
+            progress_callback: Optional callback(phase, source, current, total)
+
+        Returns:
+            Tuple of (indexed_counts dict, complete_metadata list)
+        """
+        if not VISION_RAG_AVAILABLE:
+            raise RuntimeError("Vision RAG components not available")
+
+        logger.info(f"Processing {len(pdf_paths)} PDFs with auto metadata extraction...")
+
+        # Step 1: Extract/complete metadata
+        if progress_callback:
+            progress_callback("metadata", "Extracting metadata...", 0, len(pdf_paths))
+
+        existing = existing_metadata or [{}] * len(pdf_paths)
+
+        metadata_list = batch_extract_metadata(
+            pdf_paths=pdf_paths,
+            gemini_api_key=self.gemini_api_key,
+            existing_metadata=existing,
+            progress_callback=lambda cur, tot, key: progress_callback(
+                "metadata", key, cur, tot
+            ) if progress_callback else None,
+        )
+
+        # Create simple reference-like objects
+        class SimpleReference:
+            def __init__(self, meta):
+                self.title = meta.get("title", "")
+                self.authors = meta.get("authors", [])
+                self.year = meta.get("year", 0)
+                self.source = meta.get("source", "")
+
+        references = [SimpleReference(m) for m in metadata_list]
+        citation_keys = [m.get("citation_key", f"source{i}") for i, m in enumerate(metadata_list)]
+
+        # Step 2: Process with OCR and index
+        indexed_counts = self.process_bibliography_with_ocr(
+            pdf_paths=pdf_paths,
+            citation_keys=citation_keys,
+            references=references,
+            force_reindex=force_reindex,
+            skip_indexed=not force_reindex,
+            progress_callback=progress_callback,
+        )
+
+        return indexed_counts, metadata_list
+
+    def _generate_grounded_preview(
+        self,
+        document_text: str,
+        citations: List[GroundedCitation],
+        style: CitationStyle,
+    ) -> Dict[str, Any]:
+        """Generate preview for grounded citations."""
+        preview_items = []
+
+        for i, citation in enumerate(citations, 1):
+            claim_start = document_text.find(citation.claim_text)
+            claim_end = claim_start + len(citation.claim_text) if claim_start != -1 else -1
+
+            preview_item = {
+                'citation_number': i,
+                'claim_text': citation.claim_text,
+                'claim_position': claim_start,
+                'citation_string': citation.citation_string,
+                'source_key': citation.citation_key,
+                'page_number': citation.page_number,
+                'pdf_page_number': citation.pdf_page_number,
+                'confidence': citation.confidence,
+                'evidence': citation.evidence_text,
+                'verified': True,  # Page number is verified via OCR
+            }
+
+            if claim_start != -1:
+                context_start = max(0, claim_start - 50)
+                context_end = min(len(document_text), claim_end + 50)
+                preview_item['context'] = document_text[context_start:context_end]
+            else:
+                preview_item['context'] = None
+                preview_item['warning'] = 'Claim text not found in document'
+
+            preview_items.append(preview_item)
+
+        return {
+            'total_citations': len(citations),
+            'style': style.value,
+            'all_pages_verified': True,
+            'citations': preview_items,
+        }
+
+    def _insert_grounded_citations(
+        self,
+        document: str,
+        citations: List[GroundedCitation],
+        style: CitationStyle,
+    ) -> str:
+        """Insert grounded citations into document."""
+        modified_document = document
+
+        # Sort by position (reverse order)
+        citations_with_positions = []
+        for citation in citations:
+            position = modified_document.find(citation.claim_text)
+            if position != -1:
+                citations_with_positions.append((position, citation))
+
+        citations_with_positions.sort(key=lambda x: x[0], reverse=True)
+
+        for position, citation in citations_with_positions:
+            claim_end = position + len(citation.claim_text)
+
+            if style == CitationStyle.APA7:
+                insertion = f" {citation.citation_string}"
+            else:
+                insertion = citation.citation_string
+
+            modified_document = (
+                modified_document[:claim_end] +
+                insertion +
+                modified_document[claim_end:]
+            )
+
+        return modified_document
 
     def insert_citations_from_file(
         self,

@@ -318,3 +318,111 @@ class CitationResult:
                 summary_lines.append(f"  ... and {len(self.warnings) - 5} more")
 
         return "\n".join(summary_lines)
+
+
+# ==================== Vision OCR Models ====================
+
+@dataclass
+class OCRPage:
+    """Page extracted via Vision OCR.
+
+    Used for scanned PDFs where text must be extracted from images.
+    Also captures printed page numbers directly from the image.
+
+    Attributes:
+        pdf_page: Page number in PDF file (1-indexed)
+        book_page: Printed page number detected by OCR (the actual book/journal page)
+        text: OCR'd text content
+        confidence: OCR confidence score (0.0-1.0)
+        is_landscape_half: True if this came from splitting a landscape 2-page scan
+        layout_type: "single" or "landscape_double"
+    """
+    pdf_page: int
+    book_page: int
+    text: str
+    confidence: float = 1.0
+    is_landscape_half: bool = False
+    layout_type: str = "single"
+
+    @property
+    def char_count(self) -> int:
+        """Character count of extracted text."""
+        return len(self.text)
+
+    def to_pdf_page(self) -> PDFPage:
+        """Convert to PDFPage for compatibility."""
+        return PDFPage(
+            pdf_page_number=self.pdf_page,
+            journal_page_number=self.book_page,
+            text_content=self.text,
+            char_count=len(self.text),
+            has_text_layer=False,  # OCR means no text layer
+            extraction_method="vision_ocr"
+        )
+
+
+@dataclass
+class PageChunk:
+    """Chunk of text with verified page metadata.
+
+    Used in the Page-Aware RAG system where each chunk
+    has a verified page number from OCR.
+
+    Attributes:
+        chunk_id: Unique identifier "{citation_key}_p{book_page}_c{idx}"
+        text: Chunk text content
+        citation_key: Source identifier (e.g., "halliday1976")
+        book_page: VERIFIED page number from OCR
+        pdf_page: Original PDF page number
+        chunk_index: Sequence within page (0, 1, 2, ...)
+    """
+    chunk_id: str
+    text: str
+    citation_key: str
+    book_page: int
+    pdf_page: int
+    chunk_index: int
+
+    @classmethod
+    def create_id(cls, citation_key: str, book_page: int, chunk_index: int, pdf_page: int = None) -> str:
+        """Create standardized chunk ID.
+
+        Includes pdf_page for uniqueness in landscape double-page scans
+        where multiple book pages come from the same PDF page.
+        """
+        if pdf_page is not None:
+            return f"{citation_key}_pdf{pdf_page}_p{book_page}_c{chunk_index}"
+        return f"{citation_key}_p{book_page}_c{chunk_index}"
+
+
+@dataclass
+class RetrievedChunk:
+    """Chunk retrieved from RAG with similarity score.
+
+    Returned by PageAwareRAG.query() with verified page metadata.
+
+    Attributes:
+        chunk_id: Unique identifier
+        text: Chunk text content
+        citation_key: Source identifier
+        book_page: VERIFIED page number (from OCR, not guessed)
+        pdf_page: Original PDF page
+        similarity: Similarity score from vector search (0.0-1.0)
+        authors: Author string for citation formatting
+        year: Publication year
+        title: Source title
+    """
+    chunk_id: str
+    text: str
+    citation_key: str
+    book_page: int
+    pdf_page: int
+    similarity: float
+    authors: str = ""
+    year: int = 0
+    title: str = ""
+
+    def format_evidence_string(self, max_length: int = 500) -> str:
+        """Format for inclusion in LLM prompt."""
+        text_preview = self.text[:max_length] + "..." if len(self.text) > max_length else self.text
+        return f"[{self.citation_key}, p.{self.book_page}]: {text_preview}"
