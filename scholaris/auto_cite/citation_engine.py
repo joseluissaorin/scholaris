@@ -11,6 +11,7 @@ MODIFIED: Grounded RAG for accurate page citations.
 import logging
 import json
 import re
+from enum import Enum
 from typing import List, Dict, Any, Tuple, Optional, Union, TYPE_CHECKING
 import google.generativeai as genai
 
@@ -61,6 +62,178 @@ class GeminiCitationEngine:
             f"Gemini citation engine initialized: model={model}, "
             f"aggressive={aggressive_mode}, paragraph_mode={paragraph_mode}"
         )
+
+    def _format_authors_apa7(self, authors_str: str) -> str:
+        """Format author names for APA7 in-text citations.
+
+        APA7 rules for parenthetical citations:
+        - Use surnames only
+        - Use "&" between authors (not "and")
+        - For 3+ authors, use "et al." after first author
+
+        Handles special cases:
+        - "van Dijk" → "van Dijk" (keep particle)
+        - "de Beaugrande" → "de Beaugrande" (keep particle)
+
+        Args:
+            authors_str: Comma-separated full names (e.g., "M.A.K. Halliday, Ruqaiya Hasan")
+
+        Returns:
+            Formatted surnames for citation (e.g., "Halliday & Hasan")
+        """
+        if not authors_str:
+            return "Unknown"
+
+        # Split by comma
+        authors = [a.strip() for a in authors_str.split(",")]
+
+        # Particles that should stay with the surname
+        particles = {"van", "von", "de", "del", "della", "di", "da", "le", "la", "el"}
+
+        surnames = []
+        for author in authors:
+            parts = author.split()
+            if not parts:
+                continue
+
+            # Check for particles (van, de, etc.)
+            surname_parts = []
+            found_particle = False
+
+            # Work backwards to find surname
+            for i in range(len(parts) - 1, -1, -1):
+                word = parts[i]
+                # If it's a particle or we haven't found the main surname yet
+                if word.lower() in particles:
+                    surname_parts.insert(0, word.lower())  # Keep lowercase for particles
+                    found_particle = True
+                elif not surname_parts or found_particle:
+                    # This is the main surname
+                    surname_parts.insert(0, word)
+                    if not found_particle:
+                        break  # Only take last word if no particle
+                    found_particle = False
+                else:
+                    break
+
+            if surname_parts:
+                surnames.append(" ".join(surname_parts))
+
+        if not surnames:
+            return "Unknown"
+
+        # Format according to number of authors
+        if len(surnames) == 1:
+            return surnames[0]
+        elif len(surnames) == 2:
+            return f"{surnames[0]} & {surnames[1]}"
+        else:
+            # 3+ authors: first author et al.
+            return f"{surnames[0]} et al."
+
+    def _get_expanded_chunk_context(
+        self,
+        chunk: RetrievedChunk,
+        rag: "PageAwareRAG",
+        chars_before: int = 400,
+        chars_after: int = 400,
+    ) -> str:
+        """Get expanded context for a chunk by including neighboring text.
+
+        Args:
+            chunk: The main chunk
+            rag: RAG instance to query for neighbors
+            chars_before: Characters to include before the chunk
+            chars_after: Characters to include after the chunk
+
+        Returns:
+            Expanded text with context markers
+        """
+        main_text = chunk.text if chunk.text else ""
+
+        # Safety: return early if main text is empty or very short
+        if len(main_text) < 10:
+            return main_text
+
+        # Try to get neighboring chunks from the same source and nearby pages
+        try:
+            # Check if RAG has the method we need
+            if not hasattr(rag, 'get_chunks_by_source_and_page'):
+                # Fallback: just return main text
+                if len(main_text) > 1200:
+                    return main_text[:1200] + "..."
+                return main_text
+
+            # Get chunks from same page or adjacent pages
+            neighbors = rag.get_chunks_by_source_and_page(
+                citation_key=chunk.citation_key,
+                book_page=chunk.book_page,
+                include_adjacent=True,
+            )
+
+            # Filter out any neighbors with empty text
+            neighbors = [n for n in neighbors if n and getattr(n, 'text', None)]
+
+            if neighbors and len(neighbors) > 1:
+                # Sort by (page, chunk_index) for proper ordering
+                sorted_neighbors = sorted(
+                    neighbors,
+                    key=lambda x: (
+                        getattr(x, 'book_page', 0) or 0,
+                        getattr(x, 'chunk_index', 0) or 0
+                    )
+                )
+
+                # Find current chunk position by comparing text prefix
+                # Use min() to avoid index errors on short texts
+                main_prefix = main_text[:min(100, len(main_text))]
+                current_idx = -1
+
+                for i, n in enumerate(sorted_neighbors):
+                    neighbor_text = getattr(n, 'text', '') or ''
+                    if len(neighbor_text) >= len(main_prefix):
+                        neighbor_prefix = neighbor_text[:len(main_prefix)]
+                        if neighbor_prefix == main_prefix:
+                            current_idx = i
+                            break
+
+                if current_idx >= 0 and current_idx < len(sorted_neighbors):
+                    # Build context
+                    context_parts = []
+
+                    # Previous chunk
+                    if current_idx > 0:
+                        prev_chunk = sorted_neighbors[current_idx - 1]
+                        prev_text = getattr(prev_chunk, 'text', '') or ''
+                        if prev_text and len(prev_text) > 0:
+                            context_parts.append(
+                                f"[...preceding context...]\n{prev_text[-chars_before:]}"
+                            )
+
+                    # Main chunk (full text)
+                    context_parts.append(f"\n[MAIN EVIDENCE]\n{main_text}")
+
+                    # Next chunk
+                    if current_idx < len(sorted_neighbors) - 1:
+                        next_chunk = sorted_neighbors[current_idx + 1]
+                        next_text = getattr(next_chunk, 'text', '') or ''
+                        if next_text and len(next_text) > 0:
+                            context_parts.append(
+                                f"\n[...following context...]\n{next_text[:chars_after]}"
+                            )
+
+                    if context_parts:
+                        return "\n".join(context_parts)
+
+        except (IndexError, AttributeError, TypeError) as e:
+            logger.debug(f"Could not get expanded context (specific): {e}")
+        except Exception as e:
+            logger.debug(f"Could not get expanded context: {e}")
+
+        # Fallback: just return main text with reasonable length
+        if len(main_text) > 1200:
+            return main_text[:1200] + "..."
+        return main_text
 
     def analyze_and_cite(
         self,
@@ -625,6 +798,7 @@ Total pages: {len(pdf.pages)}
         max_citations_per_claim: int = 3,
         batch_size: int = 4,
         exporter: Optional["CitationExporter"] = None,
+        parallel_batches: int = 10,
     ) -> List["GroundedCitation"]:
         """Analyze document using grounded RAG for verified page numbers.
 
@@ -632,7 +806,7 @@ Total pages: {len(pdf.pages)}
         - Page numbers come from retrieval metadata, not guessing
         - Gemini can only cite pages that exist in retrieved chunks
         - Every citation is grounded in verified evidence
-        - Processes paragraphs in batches to reduce API calls
+        - Processes paragraphs in parallel batches for speed
 
         Args:
             document_text: Document to analyze
@@ -641,87 +815,128 @@ Total pages: {len(pdf.pages)}
             max_citations_per_claim: Maximum citations per claim
             batch_size: Number of paragraphs to process per batch
             exporter: Optional CitationExporter for CSV/JSON export
+            parallel_batches: Number of batches to process in parallel (default: 10)
 
         Returns:
             List of GroundedCitation objects with verified page numbers
         """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         logger.info(f"Starting grounded RAG citation analysis ({len(document_text)} chars)")
 
         # Split into paragraphs and filter short ones
         paragraphs = self._split_into_paragraphs(document_text)
         paragraphs = [p for p in paragraphs if len(p.strip()) >= 50]
-        logger.info(f"Split document into {len(paragraphs)} paragraphs (batch size: {batch_size})")
+        logger.info(f"Split document into {len(paragraphs)} paragraphs (batch size: {batch_size}, parallel: {parallel_batches})")
 
         # Register paragraphs with exporter if provided
         if exporter:
             for i, para in enumerate(paragraphs):
                 exporter.add_sentence(i, para)
 
-        all_citations = []
-        seen_claims = set()
-
-        # Process in batches
+        # Build all batch info upfront
         total_batches = (len(paragraphs) + batch_size - 1) // batch_size
+        batch_infos = []
         for batch_idx in range(total_batches):
             start_idx = batch_idx * batch_size
             end_idx = min(start_idx + batch_size, len(paragraphs))
             batch_paragraphs = paragraphs[start_idx:end_idx]
+            batch_infos.append({
+                "batch_idx": batch_idx,
+                "start_idx": start_idx,
+                "end_idx": end_idx,
+                "paragraphs": batch_paragraphs,
+            })
 
-            logger.info(f"Processing batch {batch_idx+1}/{total_batches} (paragraphs {start_idx+1}-{end_idx}) with RAG...")
+        logger.info(f"Processing {total_batches} batches in parallel (max {parallel_batches} concurrent)...")
+
+        # Process batches in parallel
+        all_results = {}  # batch_idx -> (citations, chunks)
+
+        def process_batch(batch_info):
+            """Process a single batch - called in parallel."""
+            batch_idx = batch_info["batch_idx"]
+            start_idx = batch_info["start_idx"]
+            batch_paragraphs = batch_info["paragraphs"]
+
+            combined_text = "\n\n".join([
+                f"[PARAGRAPH {start_idx + i + 1}]\n{p}"
+                for i, p in enumerate(batch_paragraphs)
+            ])
 
             try:
-                # Combine paragraphs with markers
-                combined_text = "\n\n".join([
-                    f"[PARAGRAPH {start_idx + i + 1}]\n{p}"
-                    for i, p in enumerate(batch_paragraphs)
-                ])
-
-                citations, retrieved_chunks = self._cite_paragraph_with_rag(
+                citations, chunks = self._cite_paragraph_with_rag(
                     paragraph=combined_text,
                     paragraph_number=batch_idx + 1,
                     total_paragraphs=total_batches,
                     rag=rag,
                     style=style,
                     return_chunks=True,
+                    full_document=document_text,
+                    already_cited=[],  # Can't track incrementally in parallel
                 )
-
-                # Add to exporter if provided
-                if exporter and retrieved_chunks:
-                    # Add chunks for each paragraph in batch
-                    for i, para in enumerate(batch_paragraphs):
-                        para_idx = start_idx + i
-                        exporter.add_retrieved_chunks(para_idx, retrieved_chunks, max_chunks=5)
-
-                # Deduplicate and track source paragraph
-                for citation in citations:
-                    claim_key = citation.claim_text[:100]
-                    if claim_key not in seen_claims:
-                        seen_claims.add(claim_key)
-
-                        # Find which paragraph this citation belongs to
-                        if exporter:
-                            best_para_idx = start_idx
-                            best_overlap = 0
-                            for i, para in enumerate(batch_paragraphs):
-                                if citation.claim_text and citation.claim_text in para:
-                                    best_para_idx = start_idx + i
-                                    break
-                                overlap = len(set(citation.claim_text.lower().split()) &
-                                            set(para.lower().split()))
-                                if overlap > best_overlap:
-                                    best_overlap = overlap
-                                    best_para_idx = start_idx + i
-
-                            citation.source_paragraph_id = best_para_idx
-                            exporter.add_citation(best_para_idx, citation)
-
-                        all_citations.append(citation)
-
+                return batch_idx, citations, chunks, None
             except Exception as e:
-                logger.warning(f"Failed to process batch {batch_idx+1}: {e}")
-                continue
+                import traceback
+                tb = traceback.format_exc()
+                logger.warning(f"Failed to process batch {batch_idx+1}: {e}\n{tb}")
+                return batch_idx, [], [], str(e)
 
-        logger.info(f"✓ Generated {len(all_citations)} grounded citations from {len(paragraphs)} paragraphs")
+        with ThreadPoolExecutor(max_workers=parallel_batches) as executor:
+            futures = {executor.submit(process_batch, info): info for info in batch_infos}
+
+            completed = 0
+            for future in as_completed(futures):
+                completed += 1
+                batch_idx, citations, chunks, error = future.result()
+                if error:
+                    logger.warning(f"Batch {batch_idx+1} failed: {error}")
+                else:
+                    all_results[batch_idx] = (citations, chunks)
+                    logger.info(f"Completed batch {batch_idx+1}/{total_batches} ({completed}/{total_batches} done, {len(citations)} citations)")
+
+        # Collect results in order and deduplicate
+        all_citations = []
+        seen_claims = set()
+
+        for batch_idx in sorted(all_results.keys()):
+            citations, retrieved_chunks = all_results[batch_idx]
+            batch_info = batch_infos[batch_idx]
+            start_idx = batch_info["start_idx"]
+            batch_paragraphs = batch_info["paragraphs"]
+
+            # Add to exporter if provided
+            if exporter and retrieved_chunks:
+                for i, para in enumerate(batch_paragraphs):
+                    para_idx = start_idx + i
+                    exporter.add_retrieved_chunks(para_idx, retrieved_chunks, max_chunks=5)
+
+            # Deduplicate and track source paragraph
+            for citation in citations:
+                claim_key = citation.claim_text[:100]
+                if claim_key not in seen_claims:
+                    seen_claims.add(claim_key)
+
+                    # Find which paragraph this citation belongs to
+                    if exporter:
+                        best_para_idx = start_idx
+                        best_overlap = 0
+                        for i, para in enumerate(batch_paragraphs):
+                            if citation.claim_text and citation.claim_text in para:
+                                best_para_idx = start_idx + i
+                                break
+                            overlap = len(set(citation.claim_text.lower().split()) &
+                                        set(para.lower().split()))
+                            if overlap > best_overlap:
+                                best_overlap = overlap
+                                best_para_idx = start_idx + i
+
+                        citation.source_paragraph_id = best_para_idx
+                        exporter.add_citation(best_para_idx, citation)
+
+                    all_citations.append(citation)
+
+        logger.info(f"✓ Generated {len(all_citations)} grounded citations from {len(paragraphs)} paragraphs ({total_batches} batches parallel)")
         return all_citations
 
     def _cite_paragraph_with_rag(
@@ -732,6 +947,8 @@ Total pages: {len(pdf.pages)}
         rag: "PageAwareRAG",
         style: CitationStyle,
         return_chunks: bool = False,
+        full_document: Optional[str] = None,
+        already_cited: Optional[List[Dict[str, Any]]] = None,
     ) -> Union[List["GroundedCitation"], Tuple[List["GroundedCitation"], List[RetrievedChunk]]]:
         """Generate citations for a paragraph using RAG retrieval.
 
@@ -744,6 +961,8 @@ Total pages: {len(pdf.pages)}
             rag: PageAwareRAG instance
             style: Citation style
             return_chunks: If True, also return retrieved chunks
+            full_document: The complete document text for context
+            already_cited: List of already-cited sources from previous batches
 
         Returns:
             If return_chunks=False: List of GroundedCitation
@@ -755,23 +974,34 @@ Total pages: {len(pdf.pages)}
         if not chunks:
             return ([], []) if return_chunks else []
 
-        # Step 2: Format evidence with VERIFIED page numbers
+        # Step 2: Format evidence with VERIFIED page numbers AND expanded context
         evidence_lines = []
         for c in chunks:
-            text_preview = c.text[:600] + "..." if len(c.text) > 600 else c.text
+            try:
+                # Get neighboring chunks for better context
+                context_text = self._get_expanded_chunk_context(c, rag)
+            except Exception as e:
+                # Fallback to chunk text if expansion fails
+                logger.debug(f"Expanded context failed for {c.citation_key}: {e}")
+                context_text = c.text if c.text else ""
+                if len(context_text) > 1200:
+                    context_text = context_text[:1200] + "..."
+
             evidence_lines.append(
-                f"[{c.citation_key}, p.{c.book_page}] (similarity: {c.similarity:.2f})\n{text_preview}"
+                f"[{c.citation_key} ({c.year}), p.{c.book_page}] (similarity: {c.similarity:.2f})\n{context_text}"
             )
 
         evidence_str = "\n\n---\n\n".join(evidence_lines)
 
-        # Step 3: Build prompt that ONLY allows retrieved page numbers
+        # Step 3: Build prompt with full context
         prompt = self._build_grounded_rag_prompt(
             paragraph=paragraph,
             paragraph_number=paragraph_number,
             total_paragraphs=total_paragraphs,
             evidence_str=evidence_str,
             chunks=chunks,
+            full_document=full_document,
+            already_cited=already_cited or [],
         )
 
         # Step 4: Call Gemini
@@ -791,21 +1021,36 @@ Total pages: {len(pdf.pages)}
         total_paragraphs: int,
         evidence_str: str,
         chunks: List[RetrievedChunk],
+        full_document: Optional[str] = None,
+        already_cited: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Build prompt for grounded RAG citation matching."""
-        # Build list of valid citation targets with page ranges
+        """Build prompt for grounded RAG citation matching with claim classification.
+
+        Args:
+            paragraph: Current batch of paragraphs to analyze
+            paragraph_number: Current batch number
+            total_paragraphs: Total batch count
+            evidence_str: Formatted evidence from RAG
+            chunks: Retrieved chunks
+            full_document: Complete document text for context
+            already_cited: Sources already cited in previous batches
+        """
+        # Build list of valid citation targets with YEARS prominently displayed
         valid_targets = []
         pages_by_source = {}  # citation_key -> sorted list of pages
+        source_years = {}  # citation_key -> year
         seen = set()
 
         for c in chunks:
             key = f"{c.citation_key}_p{c.book_page}"
             if key not in seen:
                 seen.add(key)
-                valid_targets.append(f"- {c.citation_key}, p.{c.book_page}")
+                year = c.year if c.year else "unknown"
+                valid_targets.append(f"- {c.citation_key} (YEAR: {year}), p.{c.book_page}")
                 # Track pages per source for range detection
                 if c.citation_key not in pages_by_source:
                     pages_by_source[c.citation_key] = []
+                    source_years[c.citation_key] = year
                 pages_by_source[c.citation_key].append(c.book_page)
 
         # Sort pages for each source
@@ -817,21 +1062,102 @@ Total pages: {len(pdf.pages)}
         # Build page range info for sources with consecutive pages
         range_info = []
         for citation_key, pages in pages_by_source.items():
+            year = source_years.get(citation_key, "?")
             if len(pages) > 1:
-                range_info.append(f"  {citation_key}: pages {pages}")
+                range_info.append(f"  {citation_key} ({year}): pages {pages}")
         range_info_str = "\n".join(range_info) if range_info else "  (no multi-page sources detected)"
 
-        prompt = f"""You are an expert academic citation assistant using GROUNDED evidence matching.
+        # Build full document summary (truncated for context)
+        doc_summary = ""
+        if full_document:
+            # Show first 2000 chars and last 1000 chars for document overview
+            if len(full_document) > 4000:
+                doc_summary = f"{full_document[:2000]}\n\n[...middle sections omitted...]\n\n{full_document[-1000:]}"
+            else:
+                doc_summary = full_document
 
-=== PARAGRAPH TO ANALYZE ({paragraph_number}/{total_paragraphs}) ===
+        # Build already-cited sources summary
+        cited_summary = ""
+        if already_cited:
+            # Group by source
+            from collections import defaultdict
+            by_source = defaultdict(list)
+            for cite in already_cited:
+                by_source[cite["source"]].append(cite)
+
+            cited_lines = []
+            for source, cites in by_source.items():
+                pages = sorted(set(c["page"] for c in cites))
+                year = cites[0].get("year", "?")
+                cited_lines.append(f"  - {source} ({year}): cited {len(cites)} times, pages {pages}")
+            cited_summary = "\n".join(cited_lines)
+
+        # Detect document language for quotation mark style
+        doc_sample = (full_document[:2000] if full_document else paragraph).lower()
+        spanish_indicators = ["el", "la", "los", "las", "de", "que", "en", "es", "un", "una", "del", "por", "con", "para"]
+        french_indicators = ["le", "la", "les", "de", "des", "du", "que", "est", "dans", "pour", "avec", "sur"]
+        spanish_count = sum(1 for w in spanish_indicators if f" {w} " in doc_sample)
+        french_count = sum(1 for w in french_indicators if f" {w} " in doc_sample)
+
+        if spanish_count > french_count and spanish_count > 5:
+            detected_language = "spanish"
+            quote_instruction = """
+=== QUOTATION MARKS (SPANISH DOCUMENT) ===
+
+This document is in SPANISH. Use Spanish/guillemet quotation marks:
+- Opening quote: « (no space after)
+- Closing quote: » (no space before)
+- Example: «texto citado»
+- NEVER use English quotes ("") in the rewritten text
+"""
+        elif french_count > spanish_count and french_count > 5:
+            detected_language = "french"
+            quote_instruction = """
+=== QUOTATION MARKS (FRENCH DOCUMENT) ===
+
+This document is in FRENCH. Use French quotation marks WITH SPACES:
+- Opening quote: « (WITH space after)
+- Closing quote: » (WITH space before)
+- Example: « texte cité »
+- NEVER use English quotes ("") in the rewritten text
+"""
+        else:
+            detected_language = "english"
+            quote_instruction = """
+=== QUOTATION MARKS (ENGLISH DOCUMENT) ===
+
+This document is in ENGLISH. Use standard English quotation marks:
+- Opening quote: "
+- Closing quote: "
+- Example: "cited text"
+"""
+
+        prompt = f"""You are an expert academic citation assistant with deep knowledge of citation logic and academic integrity. Your task is to identify claims, CLASSIFY the citation relationship, and potentially REWRITE sentences for proper attribution.
+{quote_instruction}
+
+=== FULL DOCUMENT CONTEXT ===
+
+The document you are citing discusses the following topics (showing beginning and end):
+
+{doc_summary if doc_summary else "(Full document not provided)"}
+
+=== ALREADY CITED IN THIS DOCUMENT ===
+
+The following sources have already been cited in previous sections of this document:
+
+{cited_summary if cited_summary else "(No sources cited yet - this is the first batch)"}
+
+IMPORTANT: Avoid over-citing the same source. If a source has been heavily cited already, only cite it again for NEW claims not covered by previous citations.
+
+=== CURRENT SECTION TO ANALYZE ({paragraph_number}/{total_paragraphs}) ===
 
 {paragraph}
 
-=== RETRIEVED EVIDENCE (with VERIFIED page numbers) ===
+=== RETRIEVED EVIDENCE (with source YEAR, verified page numbers, and expanded context) ===
 
 {evidence_str}
 
-=== VALID CITATION TARGETS ===
+=== VALID SOURCES (note the PUBLICATION YEAR of each source) ===
 
 {valid_targets_str}
 
@@ -839,51 +1165,134 @@ Total pages: {len(pdf.pages)}
 
 {range_info_str}
 
-=== CRITICAL RULES ===
+=== CRITICAL: TEMPORAL IMPOSSIBILITY DETECTION ===
 
-1. ONLY cite using (citation_key, page_number) pairs from RETRIEVED EVIDENCE above
-2. Do NOT guess page numbers - they are VERIFIED from OCR
-3. If no evidence matches a claim, do NOT cite it
-4. Copy the EXACT page number from evidence header [citation_key, p.XX]
-5. Match claims to evidence based on semantic similarity
+A source CANNOT directly support claims about concepts that didn't exist when it was written:
 
-=== PAGE RANGES ===
+EXAMPLES OF TEMPORAL IMPOSSIBILITY:
+- A 1981 source (de Beaugrande) CANNOT directly discuss "tokenization in neural language models"
+- A 1987 source (Langacker) CANNOT directly support claims about "Transformers" or "attention mechanisms"
+- A 1980 source (van Dijk) CANNOT discuss "embedding spaces" or "BPE algorithms"
 
-If a claim is supported by evidence from MULTIPLE CONSECUTIVE pages (e.g., p.3, p.4, p.5),
-you may specify a page range using "book_page_end". Both start and end pages MUST exist
-in the retrieved evidence. Example: book_page=3, book_page_end=5 for pp. 3-5.
+MODERN NLP CONCEPTS (require sources from 2013+):
+- Transformers, attention mechanisms (2017+)
+- Tokenization algorithms: BPE, WordPiece, SentencePiece (2016+)
+- Neural language models, embeddings (2013+)
+- BERT, GPT, LLMs (2018+)
 
-Only use page ranges when:
-- The claim is a broad topic/concept spanning multiple pages
-- You have evidence from at least 2-3 consecutive pages
-- The evidence from different pages supports the SAME claim
+IF a claim about modern NLP cites an older linguistics source, this is FRAMEWORK APPLICATION, not direct support.
 
-=== OUTPUT FORMAT (JSON only) ===
+=== CITATION TYPE CLASSIFICATION (MANDATORY) ===
 
-```json
+For EACH potential citation, classify the relationship:
+
+1. "direct_support" - The source DIRECTLY makes or supports this exact claim
+   - Source year is appropriate for the topic
+   - Evidence text contains the same argument
+   - Example: "Cohesion creates textual unity" → Halliday (1976) directly discusses this
+
+2. "framework_application" - You're APPLYING the source's concept to a NEW domain
+   - Source year predates the technology/concept being discussed
+   - The connection is the AUTHOR'S novel synthesis
+   - Example: "Tokenization operates as a perceptual apparatus" → de Beaugrande (1981) didn't discuss tokenization, but his framework is being applied
+   - REQUIRES: suggested_rewrite field with properly attributed text
+
+3. "background_context" - Foundational knowledge that frames the argument
+   - General theoretical background
+   - Example: "Text linguistics studies coherence" → basic background claim
+
+4. "novel_contribution" - The author's own idea or synthesis
+   - NO CITATION NEEDED - this is the author's contribution
+   - Example: Original metaphors, novel arguments
+
+5. "temporal_impossible" - Citation is logically impossible
+   - A pre-2010 source cited for claims about neural NLP
+   - MUST be converted to framework_application with rewrite
+
+=== FRAMEWORK APPLICATION REWRITES ===
+
+When citation_type is "framework_application", you MUST provide a suggested_rewrite that:
+1. Clearly attributes the framework to the original source
+2. Marks the novel application as the author's proposal
+3. Replaces the ENTIRE sentence or clause that will be substituted
+
+CRITICAL FOR REWRITES: The claim_text for framework applications should be the COMPLETE SENTENCE
+(from start to just before the period) that will be replaced. The suggested_rewrite will
+SUBSTITUTE the entire claim_text, so both must match in scope.
+
+EXAMPLES:
+
+Original sentence: "La tokenización opera como el aparato perceptivo del modelo."
+
+WRONG claim_text (too short):
+  claim_text: "el aparato perceptivo del modelo"  ← Only part of sentence!
+  Result: "La tokenización opera como [rewrite]." ← Broken!
+
+CORRECT claim_text (full sentence):
+  claim_text: "La tokenización opera como el aparato perceptivo del modelo"  ← Full sentence
+  suggested_rewrite: "Aplicando el marco procesual de de Beaugrande y Dressler (1981), proponemos que la tokenización funciona como el aparato perceptivo del modelo"
+  Result: "[rewrite]." ← Clean replacement!
+
+EXAMPLE REWRITES:
+
+Original: "Proponemos que la tokenización impone un construal específico."
+claim_text: "Proponemos que la tokenización impone un construal específico"
+suggested_rewrite: "Langacker (1987) introdujo el concepto de construal. Aplicando este marco, proponemos que la tokenización impone un construal específico"
+
+=== CLAIM_TEXT EXTRACTION RULES ===
+
+The "claim_text" field must contain the EXACT substring from the document.
+
+RULE 1: Copy text CHARACTER-FOR-CHARACTER
+  - Same capitalization, accents, punctuation
+  - If no exact match, citation will fail
+
+RULE 2: STOP BEFORE sentence-ending punctuation (. ! ? :)
+
+RULE 3: For DIRECT_SUPPORT: meaningful phrase or clause
+        For FRAMEWORK_APPLICATION: ENTIRE sentence to be replaced
+
+=== OUTPUT FORMAT (valid JSON only) ===
+
 {{
   "citations": [
     {{
-      "claim_text": "exact text from paragraph needing citation",
+      "claim_text": "exact substring from document",
       "citation_key": "halliday1976",
       "book_page": 322,
       "book_page_end": null,
-      "evidence_match": "brief quote from matching evidence",
-      "confidence": 0.85
+      "evidence_match": "brief quote from evidence",
+      "confidence": 0.92,
+      "citation_type": "direct_support",
+      "suggested_rewrite": null
     }},
     {{
-      "claim_text": "topic spanning multiple pages",
+      "claim_text": "la tokenización opera como el aparato perceptivo del modelo",
       "citation_key": "beaugrande1981",
-      "book_page": 3,
-      "book_page_end": 11,
-      "evidence_match": "concept introduced on p.3, elaborated through p.11",
-      "confidence": 0.90
+      "book_page": 93,
+      "book_page_end": null,
+      "evidence_match": "The procedural processing model...",
+      "confidence": 0.85,
+      "citation_type": "framework_application",
+      "suggested_rewrite": "Aplicando el marco procesual de de Beaugrande y Dressler (1981), proponemos que la tokenización funciona como el aparato perceptivo del modelo"
     }}
+  ],
+  "novel_contributions": [
+    "Brief description of claims that are the author's own ideas (no citation needed)"
+  ],
+  "warnings": [
+    "Any temporal impossibilities or concerns detected"
   ]
 }}
-```
 
-If no claims match the evidence, return: {{"citations": []}}
+If no claims need citations: {{"citations": [], "novel_contributions": [], "warnings": []}}
+
+=== CRITICAL REMINDERS ===
+
+1. NEVER cite a pre-2013 source as direct support for neural NLP claims
+2. Framework applications REQUIRE suggested_rewrite
+3. Novel contributions should NOT be cited - they are the author's ideas
+4. When in doubt, classify as framework_application with proper rewrite
 """
         return prompt
 
@@ -973,7 +1382,7 @@ If no claims match the evidence, return: {{"citations": []}}
                                     break
 
                 # Format citation string with page range support
-                author_str = chunk.authors if chunk.authors else "Unknown"
+                author_str = self._format_authors_apa7(chunk.authors) if chunk.authors else "Unknown"
                 year = chunk.year if chunk.year else 0
 
                 if page_end is not None and page_end != book_page:
@@ -991,6 +1400,33 @@ If no claims match the evidence, return: {{"citations": []}}
                         title = chunk.title if chunk.title else "Unknown"
                         citation_string = f'{author_str}, "{title}" ({year}): {book_page}.'
 
+                # Parse citation type (new field)
+                raw_type = cite_data.get("citation_type", "direct_support")
+                try:
+                    citation_type = CitationType(raw_type)
+                except ValueError:
+                    citation_type = CitationType.DIRECT_SUPPORT
+
+                # Get suggested rewrite for framework applications
+                suggested_rewrite = cite_data.get("suggested_rewrite")
+
+                # Detect temporal impossibility
+                temporal_warning = None
+                if year and year < 2010:
+                    claim_text_lower = cite_data.get("claim_text", "").lower()
+                    modern_terms = ["tokeniz", "transformer", "attention", "embedding",
+                                    "bert", "gpt", "neural", "bpe", "wordpiece", "llm",
+                                    "modelo de lenguaje", "red neuronal", "espacio latente"]
+                    if any(term in claim_text_lower for term in modern_terms):
+                        if citation_type == CitationType.DIRECT_SUPPORT:
+                            # Upgrade to framework application
+                            citation_type = CitationType.FRAMEWORK_APPLICATION
+                            temporal_warning = (
+                                f"Source year {year} predates modern NLP concepts. "
+                                f"Treated as framework application."
+                            )
+                            logger.warning(temporal_warning)
+
                 citations.append(GroundedCitation(
                     citation_key=chunk.citation_key,
                     page_number=chunk.book_page,
@@ -1004,7 +1440,18 @@ If no claims match the evidence, return: {{"citations": []}}
                     title=chunk.title,
                     page_end=page_end,
                     pdf_page_end=pdf_page_end,
+                    citation_type=citation_type,
+                    suggested_rewrite=suggested_rewrite,
+                    temporal_warning=temporal_warning,
                 ))
+
+            # Log warnings from response
+            for warning in data.get("warnings", []):
+                logger.warning(f"Citation warning: {warning}")
+
+            # Log novel contributions (no citations needed)
+            for novel in data.get("novel_contributions", []):
+                logger.info(f"Novel contribution (no citation): {novel}")
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse grounded JSON: {e}")
@@ -1014,10 +1461,20 @@ If no claims match the evidence, return: {{"citations": []}}
         return citations
 
 
+class CitationType(Enum):
+    """Classification of citation relationship."""
+    DIRECT_SUPPORT = "direct_support"  # Source directly makes/supports the claim
+    FRAMEWORK_APPLICATION = "framework_application"  # Using source's framework for new domain
+    BACKGROUND_CONTEXT = "background_context"  # Foundational knowledge
+    NOVEL_CONTRIBUTION = "novel_contribution"  # Author's own idea - no citation needed
+    TEMPORAL_IMPOSSIBLE = "temporal_impossible"  # Source predates the concept
+
+
 class GroundedCitation:
     """Citation with verified page from RAG retrieval.
 
     Supports page ranges for concepts spanning multiple pages (e.g., pp. 123-126).
+    Now includes citation type classification and text modification suggestions.
     """
 
     def __init__(
@@ -1035,6 +1492,9 @@ class GroundedCitation:
         source_paragraph_id: int = -1,
         page_end: Optional[int] = None,
         pdf_page_end: Optional[int] = None,
+        citation_type: CitationType = CitationType.DIRECT_SUPPORT,
+        suggested_rewrite: Optional[str] = None,
+        temporal_warning: Optional[str] = None,
     ):
         self.citation_key = citation_key
         self.page_number = page_number  # Start page (or single page)
@@ -1050,11 +1510,25 @@ class GroundedCitation:
         self.title = title
         self.source_pdf = None
         self.source_paragraph_id = source_paragraph_id  # Which paragraph this citation is for
+        # New fields for citation logic
+        self.citation_type = citation_type
+        self.suggested_rewrite = suggested_rewrite  # Rewritten text for framework applications
+        self.temporal_warning = temporal_warning  # Warning about temporal impossibility
 
     @property
     def is_page_range(self) -> bool:
         """Return True if this citation spans multiple pages."""
         return self.page_end is not None and self.page_end != self.page_number
+
+    @property
+    def needs_rewrite(self) -> bool:
+        """Return True if text should be rewritten (framework application)."""
+        return self.citation_type == CitationType.FRAMEWORK_APPLICATION and self.suggested_rewrite
+
+    @property
+    def is_impossible(self) -> bool:
+        """Return True if citation is temporally impossible."""
+        return self.citation_type == CitationType.TEMPORAL_IMPOSSIBLE
 
     @property
     def page_string(self) -> str:

@@ -411,6 +411,7 @@ class RetrievedChunk:
         authors: Author string for citation formatting
         year: Publication year
         title: Source title
+        chunk_index: Index within page for ordering context
     """
     chunk_id: str
     text: str
@@ -421,6 +422,7 @@ class RetrievedChunk:
     authors: str = ""
     year: int = 0
     title: str = ""
+    chunk_index: Optional[int] = None  # For ordering within page
 
     def format_evidence_string(self, max_length: int = 500) -> str:
         """Format for inclusion in LLM prompt."""

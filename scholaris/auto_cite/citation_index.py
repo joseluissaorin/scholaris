@@ -11,8 +11,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
+import re
+
 from .processed_pdf import ProcessedPDF, SUPPORTED_EXTENSIONS
-from .models import CitationStyle, RetrievedChunk
+from .models import CitationStyle, RetrievedChunk, CitationResult
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +84,13 @@ class CitationIndex:
 
         if citation_key in self._sources:
             logger.warning(f"Replacing existing source: {citation_key}")
+            # Remove old entries from chunk_lookup and rebuild
+            del self._sources[citation_key]
+            self._chunk_lookup = []
+            for source in self._sources.values():
+                source.chunk_offset = len(self._chunk_lookup)
+                for i, chunk in enumerate(source.processed_pdf.chunks):
+                    self._chunk_lookup.append((source.citation_key, i))
 
         chunk_offset = len(self._chunk_lookup)
 
@@ -93,9 +102,9 @@ class CitationIndex:
             source_type="spdf",
         )
 
-        # Add to chunk lookup
+        # Add to chunk lookup - store index position, not chunk.id
         for i, chunk in enumerate(processed_pdf.chunks):
-            self._chunk_lookup.append((citation_key, chunk.id))
+            self._chunk_lookup.append((citation_key, i))  # Use index, not chunk.id
 
         self._needs_rebuild = True
         logger.info(f"Added source: {citation_key} ({len(processed_pdf.chunks)} chunks)")
@@ -349,16 +358,18 @@ class CitationIndex:
             source = self._sources[citation_key]
             chunk_data = source.processed_pdf.chunks[chunk_id]
 
+            chunk_text = chunk_data.text if chunk_data.text else ""
             chunks.append(RetrievedChunk(
-                chunk_id=f"{citation_key}_c{chunk_id}",
+                chunk_id=f"{citation_key}_p{chunk_data.book_page}_c{chunk_data.chunk_index}",
                 citation_key=citation_key,
-                text=chunk_data.text,
+                text=chunk_text,
                 book_page=chunk_data.book_page,
                 pdf_page=chunk_data.pdf_page,
                 similarity=similarity,
                 authors=", ".join(source.processed_pdf.metadata.authors) if source.processed_pdf.metadata.authors else "",
                 year=source.processed_pdf.metadata.year,
                 title=source.processed_pdf.metadata.title,
+                chunk_index=chunk_data.chunk_index,
             ))
 
         return chunks
@@ -452,12 +463,12 @@ class CitationIndex:
 
         del self._sources[citation_key]
 
-        # Rebuild chunk lookup
+        # Rebuild chunk lookup - use index, not chunk.id
         self._chunk_lookup = []
         for source in self._sources.values():
             source.chunk_offset = len(self._chunk_lookup)
-            for chunk in source.processed_pdf.chunks:
-                self._chunk_lookup.append((source.citation_key, chunk.id))
+            for i, chunk in enumerate(source.processed_pdf.chunks):
+                self._chunk_lookup.append((source.citation_key, i))
 
         self._needs_rebuild = True
         logger.info(f"Removed source: {citation_key}")
@@ -598,6 +609,427 @@ class CitationIndex:
         index._build_index()
         return index
 
+    def cite_document(
+        self,
+        document_text: str,
+        style: CitationStyle = CitationStyle.APA7,
+        max_citations_per_claim: int = 3,
+        batch_size: int = 4,
+        min_confidence: float = 0.7,
+        include_bibliography: bool = True,
+    ) -> CitationResult:
+        """Generate citations and insert them into the document.
+
+        This is the main method for automatic citation. Takes an uncited
+        document and returns the document with inline citations inserted,
+        plus a formatted bibliography.
+
+        Args:
+            document_text: The uncited document text
+            style: Citation style (APA7 or CHICAGO17)
+            max_citations_per_claim: Maximum citations per claim
+            batch_size: Number of paragraphs to process together
+            min_confidence: Minimum confidence threshold for citations
+            include_bibliography: Whether to append bibliography at end
+
+        Returns:
+            CitationResult with:
+            - modified_document: Document with inline citations
+            - citations: List of all citations inserted
+            - metadata: Statistics and bibliography
+
+        Example:
+            >>> index = CitationIndex.from_bibliography("./bib/", api_key)
+            >>> result = index.cite_document(essay_text)
+            >>> print(result.modified_document)
+        """
+        if not self._gemini_api_key:
+            raise ValueError("No API key provided for citation generation")
+
+        self._ensure_index()
+
+        from .citation_engine import GeminiCitationEngine
+
+        engine = GeminiCitationEngine(api_key=self._gemini_api_key)
+        index_rag = _CitationIndexRAGAdapter(self)
+
+        # Generate citations using grounded RAG
+        logger.info(f"Analyzing document ({len(document_text)} chars) with batch_size={batch_size}")
+
+        all_citations = engine.analyze_with_grounded_rag(
+            document_text=document_text,
+            rag=index_rag,
+            style=style,
+            max_citations_per_claim=max_citations_per_claim,
+            batch_size=batch_size,
+        )
+
+        # Filter by confidence
+        citations = [c for c in all_citations if c.confidence >= min_confidence]
+        filtered_count = len(all_citations) - len(citations)
+
+        logger.info(f"Generated {len(all_citations)} citations, {len(citations)} meet threshold (≥{min_confidence})")
+
+        # Insert citations into document
+        modified_document, insertion_stats = self._insert_citations(
+            document_text, citations, style
+        )
+
+        # Generate bibliography if requested
+        bibliography = ""
+        if include_bibliography and citations:
+            bibliography = self._generate_bibliography(citations, style)
+
+        # Collect warnings
+        warnings = []
+        if filtered_count > 0:
+            warnings.append(f"Filtered {filtered_count} low-confidence citations (< {min_confidence})")
+        if insertion_stats.get("failed_insertions", 0) > 0:
+            warnings.append(
+                f"Failed to insert {insertion_stats['failed_insertions']} citations "
+                f"(claim text not found in document)"
+            )
+        if insertion_stats.get("temporal_warnings", 0) > 0:
+            warnings.append(
+                f"Detected {insertion_stats['temporal_warnings']} temporal impossibilities "
+                f"(old source cited for modern NLP concepts)"
+            )
+        if insertion_stats.get("framework_rewrites", 0) > 0:
+            warnings.append(
+                f"Performed {insertion_stats['framework_rewrites']} framework application rewrites "
+                f"(text modified for proper attribution)"
+            )
+
+        # Build final document with bibliography
+        final_document = modified_document
+        if bibliography:
+            final_document = modified_document + "\n\n" + bibliography
+
+        # Build metadata
+        used_sources = set(c.citation_key for c in citations)
+        metadata = {
+            "total_citations": len(citations),
+            "unique_sources": len(used_sources),
+            "sources_used": sorted(used_sources),
+            "successful_insertions": insertion_stats.get("successful_insertions", 0),
+            "failed_insertions": insertion_stats.get("failed_insertions", 0),
+            "framework_rewrites": insertion_stats.get("framework_rewrites", 0),
+            "temporal_warnings": insertion_stats.get("temporal_warnings", 0),
+            "style": style.value,
+            "min_confidence": min_confidence,
+            "bibliography": bibliography,
+        }
+
+        return CitationResult(
+            modified_document=final_document,
+            citations=citations,
+            warnings=warnings,
+            metadata=metadata,
+        )
+
+    def _insert_citations(
+        self,
+        document: str,
+        citations: List[Any],
+        style: CitationStyle,
+    ) -> Tuple[str, Dict[str, int]]:
+        """Insert citations into document at the correct positions.
+
+        Handles different citation types:
+        - direct_support/background_context: Insert citation after claim
+        - framework_application: Replace claim with suggested_rewrite (has citation embedded)
+        - novel_contribution/temporal_impossible: Skip (or warn)
+
+        Args:
+            document: Original document text
+            citations: List of GroundedCitation objects
+            style: Citation style
+
+        Returns:
+            Tuple of (modified_document, stats_dict)
+        """
+        from .citation_engine import CitationType
+
+        modified = document
+        successful = 0
+        failed = 0
+        rewrites = 0
+        temporal_warnings = 0
+        insertions = []  # (position, operation_type, old_text, new_text, citation)
+
+        for citation in citations:
+            claim = citation.claim_text
+            cite_str = citation.citation_string
+            citation_type = getattr(citation, 'citation_type', CitationType.DIRECT_SUPPORT)
+            suggested_rewrite = getattr(citation, 'suggested_rewrite', None)
+
+            # Check for temporal warnings
+            if getattr(citation, 'temporal_warning', None):
+                temporal_warnings += 1
+                logger.warning(citation.temporal_warning)
+
+            # Skip novel contributions - they don't need citations
+            if citation_type == CitationType.NOVEL_CONTRIBUTION:
+                logger.info(f"Skipping novel contribution (no citation needed): '{claim[:50]}...'")
+                continue
+
+            # Try to find the claim in the document
+            pos = self._find_claim_position(modified, claim)
+
+            if pos == -1:
+                logger.warning(f"Could not locate claim: '{claim[:60]}...'")
+                failed += 1
+                continue
+
+            # Handle based on citation type
+            if citation_type == CitationType.FRAMEWORK_APPLICATION and suggested_rewrite:
+                # REWRITE: Replace the claim with the suggested rewrite
+                # The suggested_rewrite should already contain the citation embedded
+                insertions.append((
+                    pos,  # start position
+                    "rewrite",
+                    claim,  # old text to replace
+                    suggested_rewrite,  # new text (with citation)
+                    citation
+                ))
+                rewrites += 1
+                successful += 1
+                logger.info(f"Framework application rewrite: '{claim[:40]}...' -> '{suggested_rewrite[:50]}...'")
+
+            else:
+                # DIRECT SUPPORT: Just insert citation after claim
+                insert_pos = pos + len(claim)
+
+                if style == CitationStyle.APA7:
+                    formatted_cite = f" {cite_str}"
+                else:
+                    formatted_cite = f" {cite_str}"
+
+                insertions.append((
+                    insert_pos,
+                    "insert",
+                    "",  # no old text for insertion
+                    formatted_cite,
+                    citation
+                ))
+                successful += 1
+
+        # Sort by position (reverse order) to preserve positions during modification
+        # For rewrites, use start position; for inserts, use insertion position
+        insertions.sort(key=lambda x: x[0], reverse=True)
+
+        # Apply modifications from end to start
+        for pos, op_type, old_text, new_text, _ in insertions:
+            if op_type == "rewrite":
+                # Replace old_text with new_text
+                end_pos = pos + len(old_text)
+                modified = modified[:pos] + new_text + modified[end_pos:]
+            else:
+                # Insert new_text at position
+                modified = modified[:pos] + new_text + modified[pos:]
+
+        stats = {
+            "successful_insertions": successful,
+            "failed_insertions": failed,
+            "framework_rewrites": rewrites,
+            "temporal_warnings": temporal_warnings,
+        }
+
+        return modified, stats
+
+    def _find_claim_position(self, document: str, claim: str) -> int:
+        """Find the position of a claim in the document with fallbacks.
+
+        Args:
+            document: The document text
+            claim: The claim text to find
+
+        Returns:
+            Position of claim start, or -1 if not found
+        """
+        # Try 1: Exact match
+        pos = document.find(claim)
+        if pos != -1:
+            return pos
+
+        # Try 2: Normalized whitespace (collapse multiple spaces/newlines)
+        normalized_claim = ' '.join(claim.split())
+        normalized_doc = ' '.join(document.split())
+
+        norm_pos = normalized_doc.find(normalized_claim)
+        if norm_pos != -1:
+            # Map back to original document position (approximate)
+            # Count characters up to the normalized position
+            char_count = 0
+            orig_pos = 0
+            for i, char in enumerate(document):
+                if char_count >= norm_pos:
+                    orig_pos = i
+                    break
+                if not (char.isspace() and (i > 0 and document[i-1].isspace())):
+                    char_count += 1
+            return orig_pos
+
+        # Try 3: Case-insensitive search (last resort)
+        lower_pos = document.lower().find(claim.lower())
+        if lower_pos != -1:
+            logger.warning(f"Used case-insensitive match for: '{claim[:40]}...'")
+            return lower_pos
+
+        return -1
+
+    def _generate_bibliography(
+        self,
+        citations: List[Any],
+        style: CitationStyle,
+    ) -> str:
+        """Generate a formatted bibliography from the citations used.
+
+        Args:
+            citations: List of GroundedCitation objects
+            style: Citation style
+
+        Returns:
+            Formatted bibliography string
+        """
+        # Get unique sources
+        used_keys = set(c.citation_key for c in citations)
+
+        references = []
+        for key in sorted(used_keys):
+            source = self._sources.get(key)
+            if source and source.processed_pdf.metadata:
+                meta = source.processed_pdf.metadata
+                ref = self._format_reference_apa7(meta)
+                references.append(ref)
+
+        if not references:
+            return ""
+
+        if style == CitationStyle.APA7:
+            header = "## Referencias"
+        else:
+            header = "## Bibliografía"
+
+        return header + "\n\n" + "\n\n".join(references)
+
+    def _format_reference_apa7(self, meta) -> str:
+        """Format a single reference in APA7 style.
+
+        Args:
+            meta: ProcessedPDF metadata with authors, year, title
+
+        Returns:
+            Formatted reference string
+        """
+        # Particles that should stay with surname
+        particles = {"van", "von", "de", "del", "della", "di", "da", "le", "la", "el"}
+
+        def format_author_name(full_name: str) -> str:
+            """Format a single author name as 'Surname, F. M.'"""
+            parts = full_name.split()
+            if not parts:
+                return full_name
+
+            # Find surname (last word, or particle + last word)
+            surname_parts = []
+            initials = []
+
+            i = len(parts) - 1
+            # Get surname (with particles)
+            while i >= 0:
+                word = parts[i]
+                if word.lower() in particles:
+                    surname_parts.insert(0, word.lower())
+                    i -= 1
+                elif not surname_parts:
+                    surname_parts.insert(0, word)
+                    i -= 1
+                    break
+                else:
+                    break
+
+            # Capitalize first letter of surname (but not particles)
+            if surname_parts:
+                surname_parts[0] = surname_parts[0].capitalize() if surname_parts[0].lower() not in particles else surname_parts[0]
+                # Capitalize the actual surname part
+                for j, part in enumerate(surname_parts):
+                    if part.lower() not in particles:
+                        surname_parts[j] = part.capitalize()
+
+            surname = " ".join(surname_parts)
+
+            # Get initials from remaining parts
+            for j in range(i + 1):
+                word = parts[j]
+                if word and word[0].isalpha():
+                    initials.append(f"{word[0].upper()}.")
+
+            if initials:
+                return f"{surname}, {' '.join(initials)}"
+            return surname
+
+        # Format authors
+        authors = meta.authors or []
+        if not authors:
+            author_str = "Unknown"
+        elif len(authors) == 1:
+            author_str = format_author_name(authors[0])
+        else:
+            formatted = []
+            for i, author in enumerate(authors[:7]):
+                formatted_name = format_author_name(author)
+                if i == len(authors) - 1 and i > 0:
+                    formatted.append(f"& {formatted_name}")
+                else:
+                    formatted.append(formatted_name)
+            if len(authors) > 7:
+                formatted.append(". . .")
+            author_str = ", ".join(formatted)
+
+        year = meta.year or "n.d."
+
+        # Convert title to sentence case (APA requirement)
+        title = meta.title or "Untitled"
+        title_sentence_case = self._to_sentence_case(title)
+
+        return f"{author_str} ({year}). *{title_sentence_case}*."
+
+    def _to_sentence_case(self, title: str) -> str:
+        """Convert title to sentence case (APA style).
+
+        Capitalizes first word and proper nouns, lowercases rest.
+        Preserves capitalization after colons.
+        """
+        if not title:
+            return title
+
+        # Words to keep capitalized (proper nouns, acronyms)
+        preserve = {"BPE", "RST", "NMT", "NLP", "AI", "BERT", "GPT", "LLM",
+                    "English", "Spanish", "French", "German", "Chinese",
+                    "Transformer", "Transformers"}
+
+        words = title.split()
+        result = []
+
+        capitalize_next = True
+        for i, word in enumerate(words):
+            # Check if word should be preserved
+            clean_word = word.strip(".,;:!?\"'()[]")
+            if clean_word in preserve or clean_word.isupper() and len(clean_word) <= 4:
+                result.append(word)
+            elif capitalize_next:
+                result.append(word.capitalize())
+                capitalize_next = False
+            else:
+                result.append(word.lower())
+
+            # Capitalize after colon
+            if word.endswith(":"):
+                capitalize_next = True
+
+        return " ".join(result)
+
     @property
     def total_chunks(self) -> int:
         """Total number of chunks across all sources."""
@@ -634,3 +1066,53 @@ class _CitationIndexRAGAdapter:
     def query(self, text: str, n_results: int = 20) -> List[RetrievedChunk]:
         """Generic query method."""
         return self._index.query(text, n_results=n_results)
+
+    def get_chunks_by_source_and_page(
+        self,
+        citation_key: str,
+        book_page: int,
+        include_adjacent: bool = True,
+    ) -> List[RetrievedChunk]:
+        """Get all chunks from a specific source and page.
+
+        Args:
+            citation_key: Source identifier
+            book_page: Page number
+            include_adjacent: If True, also include chunks from adjacent pages
+
+        Returns:
+            List of chunks from the specified page(s)
+        """
+        chunks = []
+
+        if citation_key not in self._index._sources:
+            return chunks
+
+        source = self._index._sources[citation_key]
+        pdf = source.processed_pdf
+
+        # Get pages to include
+        pages_to_check = {book_page}
+        if include_adjacent:
+            pages_to_check.add(book_page - 1)
+            pages_to_check.add(book_page + 1)
+
+        for chunk in pdf.chunks:
+            if chunk.book_page in pages_to_check:
+                chunk_text = chunk.text if chunk.text else ""
+                chunks.append(RetrievedChunk(
+                    chunk_id=f"{citation_key}_p{chunk.book_page}_c{chunk.chunk_index}",
+                    citation_key=citation_key,
+                    book_page=chunk.book_page,
+                    pdf_page=chunk.pdf_page,
+                    text=chunk_text,
+                    similarity=1.0,  # Not from similarity search
+                    authors=", ".join(pdf.metadata.authors) if pdf.metadata.authors else "",
+                    year=pdf.metadata.year,
+                    title=pdf.metadata.title,
+                    chunk_index=chunk.chunk_index,  # Use actual chunk_index, not id
+                ))
+
+        # Sort by page and chunk index
+        chunks.sort(key=lambda x: (x.book_page, x.chunk_index or 0))
+        return chunks
