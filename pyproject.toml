@@ -25,7 +25,7 @@ classifiers = [
 dependencies = [
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
-    "pdf2bib>=1.7",
+    "pdf2bib>=1.2",
     "bibtexparser>=1.4.0",
     "PyPaperBot>=1.2.0",
     "google-generativeai>=0.3.0",
@@ -33,6 +33,9 @@ dependencies = [
     "python-docx>=0.8.11",
     "markdown>=3.4.0",
     "beautifulsoup4>=4.11.0",
+    "PyMuPDF>=1.23.0",
+    "numpy>=1.24.0",
+    "Pillow>=9.0.0",
 ]
 
 [project.optional-dependencies]
