@@ -541,6 +541,7 @@ print(f"Inserted {result.metadata['total_citations']} citations")
 | **Framework detection** | **Yes** | No | No | No |
 | **Vision OCR (scanned PDFs)** | **Yes** | No | No | No |
 | **Shareable processed format** | **Yes** | No | No | No |
+| **Claude Code integration** | **Yes** | No | No | No |
 | Paper search | Yes | Yes | Yes | Yes |
 | BibTeX extraction | Yes | Yes | Yes | No |
 
@@ -557,6 +558,42 @@ print(f"Inserted {result.metadata['total_citations']} citations")
 - **Citations:** Verify accuracy before submitting academic work.
 - **Framework rewrites:** Review suggested rewrites for appropriateness.
 - **API Keys:** Use environment variables, never commit to git.
+
+<br/>
+
+---
+
+<br/>
+
+## Claude Code Integration
+
+Scholaris includes a Claude Code skill for seamless AI-assisted citation workflows.
+
+### Installation
+
+```bash
+# Copy skill and commands to your Claude configuration
+cp -r .claude/skills/scholaris ~/.claude/skills/
+cp .claude/commands/*.md ~/.claude/commands/
+```
+
+### Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/cite paper.md ./bib` | Cite a document with verified page numbers |
+| `/process-pdf paper.pdf` | Convert PDF to SPDF format |
+| `/search-papers "topic"` | Search and download academic papers |
+| `/batch-process ./pdfs` | Batch process multiple PDFs |
+
+### Auto-Discovery
+
+Claude automatically suggests using scholaris when you:
+- Work with PDFs, citations, or bibliography
+- Ask about academic writing or reference management
+- Mention SPDF files or page number verification
+
+See [.claude/INSTALL.md](.claude/INSTALL.md) for detailed setup instructions.
 
 <br/>
 
