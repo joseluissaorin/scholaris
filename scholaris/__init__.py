@@ -22,7 +22,7 @@ from .exceptions import (
 from .core.models import Paper, Reference, Section, Review
 from .scholaris import Scholaris
 
-__version__ = "0.1.0"
+__version__ = "1.3.0"
 __all__ = [
     "Scholaris",
     "Config",

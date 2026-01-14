@@ -4,6 +4,8 @@
 Usage:
     scholaris cite <document> <spdf_dir> [options]
     scholaris process <pdf> [options]
+    scholaris extract <pdf_dir> [options]
+    scholaris export <spdf_dir> <output> [options]
     scholaris info <spdf_dir>
     scholaris install-skills [--global]
     scholaris --version
@@ -11,7 +13,9 @@ Usage:
 
 Commands:
     cite            Auto-cite a document using SPDF bibliography
-    process         Process a PDF to SPDF format
+    process         Process a PDF to SPDF format (with auto-metadata extraction)
+    extract         Extract metadata from PDFs using hybrid AI approach
+    export          Export bibliography to xlsx/csv/bibtex/json
     info            Show information about SPDF files in a directory
     install-skills  Install Claude Code skills and commands
 
@@ -19,8 +23,17 @@ Examples:
     # Cite a document using pre-processed SPDF files
     scholaris cite paper.md ./spdf -o paper_cited.md
 
-    # Process a PDF to SPDF format
+    # Process a PDF to SPDF format (auto-extracts metadata if not provided)
+    scholaris process paper.pdf --auto-metadata
     scholaris process paper.pdf --key smith2024 --authors "John Smith" --year 2024
+
+    # Extract metadata from all PDFs in a directory
+    scholaris extract ./pdfs -o bibliography.xlsx
+
+    # Export SPDF bibliography to various formats
+    scholaris export ./spdf bibliography.xlsx
+    scholaris export ./spdf refs.bib --format bibtex
+    scholaris export ./spdf refs.csv --format csv
 
     # Show info about SPDF collection
     scholaris info ./spdf
@@ -148,39 +161,75 @@ def cmd_process(args):
         print(f"Error: PDF not found: {pdf_path}")
         return 1
 
+    # Auto-extract metadata if requested
+    title = args.title
+    authors = []
+    year = args.year
+    citation_key = args.key
+
+    if args.auto_metadata:
+        print("=" * 60)
+        print("Scholaris PDF Processing (with auto-metadata)")
+        print("=" * 60)
+        print(f"\nInput: {pdf_path}")
+        print("\nExtracting metadata using hybrid approach...")
+
+        from scholaris.auto_cite.metadata_extractor import HybridMetadataExtractor
+        extractor = HybridMetadataExtractor(gemini_api_key=api_key)
+        meta = extractor.extract(str(pdf_path))
+
+        # Use extracted metadata, but allow CLI args to override
+        if not title and meta.title:
+            title = meta.title
+            print(f"  Title: {title[:60]}...")
+        if not authors and meta.authors:
+            authors = meta.authors
+            print(f"  Authors: {', '.join(authors[:3])}{'...' if len(authors) > 3 else ''}")
+        if not year and meta.year:
+            year = meta.year
+            print(f"  Year: {year}")
+        if not citation_key and meta.citation_key:
+            citation_key = meta.citation_key
+            print(f"  Citation key: {citation_key}")
+    else:
+        # Parse authors from CLI
+        if args.authors:
+            authors = [a.strip() for a in args.authors.split(",")]
+
+        print("=" * 60)
+        print("Scholaris PDF Processing")
+        print("=" * 60)
+        print(f"\nInput: {pdf_path}")
+
+    # Set defaults for any missing values
+    citation_key = citation_key or pdf_path.stem
+    title = title or pdf_path.stem
+    year = year or 0
+
     # Determine output path
     if args.output:
         output_path = Path(args.output)
     else:
         output_dir = Path(args.output_dir) if args.output_dir else pdf_path.parent
-        output_path = output_dir / f"{args.key or pdf_path.stem}.spdf"
+        output_path = output_dir / f"{citation_key}.spdf"
 
-    # Parse authors
-    authors = []
-    if args.authors:
-        authors = [a.strip() for a in args.authors.split(",")]
-
-    print("=" * 60)
-    print("Scholaris PDF Processing")
-    print("=" * 60)
-    print(f"\nInput: {pdf_path}")
     print(f"Output: {output_path}")
-    print(f"Citation key: {args.key or pdf_path.stem}")
+    print(f"Citation key: {citation_key}")
     if authors:
         print(f"Authors: {', '.join(authors)}")
-    if args.year:
-        print(f"Year: {args.year}")
-    if args.title:
-        print(f"Title: {args.title}")
+    if year:
+        print(f"Year: {year}")
+    if title != pdf_path.stem:
+        print(f"Title: {title[:60]}...")
 
     print("\nProcessing with Vision OCR...")
 
     processed = ProcessedPDF.from_pdf(
         pdf_path=pdf_path,
-        citation_key=args.key or pdf_path.stem,
+        citation_key=citation_key,
         authors=authors,
-        year=args.year or 0,
-        title=args.title or pdf_path.stem,
+        year=year,
+        title=title,
         gemini_api_key=api_key,
         include_previews=not args.no_previews,
     )
@@ -193,6 +242,165 @@ def cmd_process(args):
     print("SUCCESS!")
     print(f"  Pages: {processed.metadata.total_pages}")
     print(f"  Chunks: {processed.metadata.total_chunks}")
+    print(f"  Output: {output_path}")
+    print("=" * 60)
+    return 0
+
+
+def cmd_extract(args):
+    """Extract metadata from PDFs using hybrid approach."""
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    api_key = args.api_key or os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("Error: GEMINI_API_KEY not set. Use --api-key or set environment variable.")
+        return 1
+
+    from scholaris.auto_cite.metadata_extractor import (
+        HybridMetadataExtractor,
+        BibliographyExporter,
+        batch_extract_metadata
+    )
+
+    pdf_dir = Path(args.pdf_dir)
+    if not pdf_dir.exists():
+        print(f"Error: Directory not found: {pdf_dir}")
+        return 1
+
+    pdf_files = sorted(pdf_dir.glob("*.pdf"))
+    if not pdf_files:
+        print(f"No PDF files found in: {pdf_dir}")
+        return 1
+
+    print("=" * 60)
+    print("Scholaris Metadata Extraction")
+    print("=" * 60)
+    print(f"\nSource: {pdf_dir}")
+    print(f"PDFs found: {len(pdf_files)}")
+
+    # Progress callback
+    def progress(current, total, key):
+        print(f"  [{current}/{total}] {key[:40]}...")
+
+    print("\nExtracting metadata (hybrid method)...")
+    results = batch_extract_metadata(
+        pdf_paths=[str(p) for p in pdf_files],
+        gemini_api_key=api_key,
+        progress_callback=progress if args.verbose else None,
+        rate_limit_delay=args.delay or 1.0,
+    )
+
+    # Determine output path and format
+    if args.output:
+        output_path = Path(args.output)
+        fmt = args.format or output_path.suffix.lstrip(".").lower()
+    else:
+        fmt = args.format or "xlsx"
+        output_path = pdf_dir.parent / f"bibliography.{fmt}"
+
+    # Export
+    print(f"\nExporting to: {output_path}")
+    if fmt in ("xlsx", "excel"):
+        BibliographyExporter.to_xlsx(results, str(output_path))
+    elif fmt == "csv":
+        BibliographyExporter.to_csv(results, str(output_path))
+    elif fmt in ("bib", "bibtex"):
+        BibliographyExporter.to_bibtex(results, str(output_path))
+    elif fmt == "json":
+        BibliographyExporter.to_json(results, str(output_path))
+    else:
+        print(f"Error: Unknown format '{fmt}'. Use xlsx, csv, bibtex, or json.")
+        return 1
+
+    print("\n" + "=" * 60)
+    print("SUCCESS!")
+    print(f"  Sources extracted: {len(results)}")
+    print(f"  Output: {output_path}")
+
+    if args.verbose:
+        print(f"\n{'Year':<6} {'Title':<50} {'Authors':<30}")
+        print("-" * 86)
+        for r in sorted(results, key=lambda x: x.year or 9999):
+            title = r.title[:47] + "..." if len(r.title) > 50 else r.title
+            authors = "; ".join(r.authors)[:27] + "..." if len("; ".join(r.authors)) > 30 else "; ".join(r.authors)
+            print(f"{r.year or '????':<6} {title:<50} {authors:<30}")
+
+    print("=" * 60)
+    return 0
+
+
+def cmd_export(args):
+    """Export SPDF bibliography to various formats."""
+    from scholaris.auto_cite.processed_pdf import ProcessedPDF
+    from scholaris.auto_cite.metadata_extractor import (
+        ExtractedMetadata,
+        BibliographyExporter
+    )
+
+    spdf_dir = Path(args.spdf_dir)
+    if not spdf_dir.exists():
+        print(f"Error: Directory not found: {spdf_dir}")
+        return 1
+
+    spdf_files = sorted(spdf_dir.glob("*.spdf"))
+    if not spdf_files:
+        print(f"No SPDF files found in: {spdf_dir}")
+        return 1
+
+    print("=" * 60)
+    print("Scholaris Bibliography Export")
+    print("=" * 60)
+    print(f"\nSource: {spdf_dir}")
+    print(f"SPDF files: {len(spdf_files)}")
+
+    # Extract metadata from SPDFs
+    results = []
+    for spdf_file in spdf_files:
+        try:
+            info = ProcessedPDF.info(spdf_file)
+            # Load full SPDF to get more metadata
+            spdf = ProcessedPDF.load(spdf_file)
+            meta = spdf.metadata
+
+            entry = ExtractedMetadata(
+                citation_key=info['citation_key'],
+                title=meta.title,
+                authors=meta.authors,
+                year=meta.year,
+                source=getattr(meta, 'source', ''),
+                doi=getattr(meta, 'doi', ''),
+                entry_type=getattr(meta, 'entry_type', 'article'),
+            )
+            results.append(entry)
+        except Exception as e:
+            print(f"  Warning: Could not read {spdf_file.name}: {e}")
+
+    if not results:
+        print("Error: No valid SPDF files found.")
+        return 1
+
+    # Determine output path and format
+    output_path = Path(args.output)
+    fmt = args.format or output_path.suffix.lstrip(".").lower()
+
+    # Export
+    print(f"\nExporting {len(results)} sources to: {output_path}")
+    if fmt in ("xlsx", "excel"):
+        BibliographyExporter.to_xlsx(results, str(output_path))
+    elif fmt == "csv":
+        BibliographyExporter.to_csv(results, str(output_path))
+    elif fmt in ("bib", "bibtex"):
+        BibliographyExporter.to_bibtex(results, str(output_path))
+    elif fmt == "json":
+        BibliographyExporter.to_json(results, str(output_path))
+    else:
+        print(f"Error: Unknown format '{fmt}'. Use xlsx, csv, bibtex, or json.")
+        return 1
+
+    print("\n" + "=" * 60)
+    print("SUCCESS!")
+    print(f"  Sources exported: {len(results)}")
     print(f"  Output: {output_path}")
     print("=" * 60)
     return 0
@@ -325,6 +533,8 @@ def main():
 Examples:
   scholaris cite paper.md ./spdf -o paper_cited.md
   scholaris process paper.pdf --key smith2024 --authors "John Smith" --year 2024
+  scholaris extract ./pdfs -o bibliography.xlsx
+  scholaris export ./spdf refs.bib --format bibtex
   scholaris info ./spdf
   scholaris install-skills --global
         """
@@ -368,7 +578,35 @@ Examples:
     process_parser.add_argument("--title", help="Document title")
     process_parser.add_argument("--no-previews", action="store_true",
                               help="Don't include page preview images")
+    process_parser.add_argument("--auto-metadata", action="store_true",
+                              help="Auto-extract metadata using hybrid AI approach")
     process_parser.add_argument("--api-key", help="Gemini API key (or set GEMINI_API_KEY)")
+
+    # extract command
+    extract_parser = subparsers.add_parser(
+        "extract",
+        help="Extract metadata from PDFs using hybrid AI approach",
+        description="Extract title, authors, year from PDFs using Gemini Vision + pdf2bib."
+    )
+    extract_parser.add_argument("pdf_dir", help="Directory containing PDF files")
+    extract_parser.add_argument("-o", "--output", help="Output file path")
+    extract_parser.add_argument("--format", choices=["xlsx", "csv", "bibtex", "json"],
+                               help="Output format (default: xlsx)")
+    extract_parser.add_argument("--delay", type=float, default=1.0,
+                               help="Delay between API calls in seconds (default: 1.0)")
+    extract_parser.add_argument("--api-key", help="Gemini API key (or set GEMINI_API_KEY)")
+    extract_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+
+    # export command
+    export_parser = subparsers.add_parser(
+        "export",
+        help="Export SPDF bibliography to various formats",
+        description="Export metadata from SPDF files to xlsx, csv, bibtex, or json."
+    )
+    export_parser.add_argument("spdf_dir", help="Directory containing SPDF files")
+    export_parser.add_argument("output", help="Output file path")
+    export_parser.add_argument("--format", choices=["xlsx", "csv", "bibtex", "json"],
+                              help="Output format (auto-detected from extension if not specified)")
 
     # info command
     info_parser = subparsers.add_parser(
@@ -397,6 +635,8 @@ Examples:
     commands = {
         "cite": cmd_cite,
         "process": cmd_process,
+        "extract": cmd_extract,
+        "export": cmd_export,
         "info": cmd_info,
         "install-skills": cmd_install_skills,
     }

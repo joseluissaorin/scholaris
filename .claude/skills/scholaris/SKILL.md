@@ -24,8 +24,19 @@ The fastest way to use scholaris is via CLI:
 # Auto-cite a document using pre-processed SPDF bibliography
 scholaris cite paper.md ./spdf -o paper_cited.md
 
-# Process a PDF to SPDF format
+# Process a PDF to SPDF format (with auto-metadata extraction)
+scholaris process paper.pdf --auto-metadata
 scholaris process paper.pdf --key smith2024 --authors "John Smith" --year 2024 --title "Paper Title"
+
+# Extract metadata from all PDFs in a directory (hybrid AI approach)
+scholaris extract ./pdfs -o bibliography.xlsx
+scholaris extract ./pdfs -o refs.bib --format bibtex
+
+# Export SPDF bibliography to various formats
+scholaris export ./spdf bibliography.xlsx
+scholaris export ./spdf refs.bib --format bibtex
+scholaris export ./spdf refs.csv --format csv
+scholaris export ./spdf refs.json --format json
 
 # Show info about SPDF collection
 scholaris info ./spdf
@@ -218,12 +229,64 @@ scholaris process <pdf> [options]
   --year            Publication year
   --title           Document title
   --no-previews     Skip page preview images
+  --auto-metadata   Auto-extract metadata using hybrid AI approach
+
+# Extract metadata from PDFs (hybrid approach: Gemini Vision + pdf2bib)
+scholaris extract <pdf_dir> [options]
+  -o, --output       Output file path
+  --format          Output format: xlsx, csv, bibtex, json (default: xlsx)
+  --delay           API rate limit delay in seconds (default: 1.0)
+  -v, --verbose      Verbose output
+
+# Export SPDF bibliography
+scholaris export <spdf_dir> <output> [options]
+  --format          Output format: xlsx, csv, bibtex, json (auto-detected)
 
 # Show SPDF collection info
 scholaris info <spdf_dir>
 
 # Install Claude Code skills
 scholaris install-skills [--global]
+```
+
+## Hybrid Metadata Extraction
+
+Scholaris uses a hybrid approach to extract accurate bibliographic metadata:
+
+1. **pdf2bib** - Looks up DOI/ISBN from PDF metadata (highest confidence when found)
+2. **Gemini Vision** - OCR of title pages for visual extraction (great for scanned/academic PDFs)
+3. **PDF internal metadata** - Reads embedded PDF metadata (often incomplete)
+4. **Filename parsing** - Extracts hints from common filename patterns (fallback)
+
+Results are intelligently merged with higher confidence sources taking precedence.
+
+```python
+from scholaris.auto_cite.metadata_extractor import (
+    HybridMetadataExtractor,
+    BibliographyExporter,
+    batch_extract_metadata,
+)
+
+# Single PDF extraction
+extractor = HybridMetadataExtractor(gemini_api_key=API_KEY)
+metadata = extractor.extract("paper.pdf")
+print(f"Title: {metadata.title}")
+print(f"Authors: {', '.join(metadata.authors)}")
+print(f"Year: {metadata.year}")
+print(f"Confidence: {metadata.confidence:.2f}")
+
+# Batch extraction with export
+results = batch_extract_metadata(
+    pdf_paths=["paper1.pdf", "paper2.pdf", "paper3.pdf"],
+    gemini_api_key=API_KEY,
+    rate_limit_delay=1.0,
+)
+
+# Export to various formats
+BibliographyExporter.to_xlsx(results, "bibliography.xlsx")
+BibliographyExporter.to_bibtex(results, "references.bib")
+BibliographyExporter.to_csv(results, "bibliography.csv")
+BibliographyExporter.to_json(results, "bibliography.json")
 ```
 
 ## Workflow Patterns

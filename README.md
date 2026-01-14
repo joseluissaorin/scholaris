@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.2.0-blue?style=for-the-badge)](https://github.com/joseluissaorin/scholaris)
+[![Version](https://img.shields.io/badge/Version-1.3.0-blue?style=for-the-badge)](https://github.com/joseluissaorin/scholaris)
 
 **Automatically cite your academic writing with verified page numbers and intelligent attribution.**
 
@@ -94,6 +94,67 @@ Automatically detects document language and uses appropriate quotation marks:
 | Spanish | Guillemets (no space) | «texto citado» |
 | French | Guillemets (with space) | « texte cité » |
 | English | Double quotes | "cited text" |
+
+<br/>
+
+---
+
+<br/>
+
+## New in v1.3: Hybrid Metadata Extraction & Bibliography Export
+
+### Hybrid Metadata Extraction
+
+Extract accurate bibliographic metadata from PDFs using an intelligent hybrid approach:
+
+| Method | Description | Confidence |
+|--------|-------------|------------|
+| **pdf2bib** | DOI/ISBN lookup from PDF metadata | Highest (0.9) |
+| **Gemini Vision** | OCR of title pages | High (0.85) |
+| **PDF internal metadata** | Embedded PDF fields | Medium (0.4) |
+| **Filename parsing** | Extract from filename patterns | Low (0.3) |
+
+Results are intelligently merged with higher confidence sources taking precedence.
+
+```bash
+# CLI: Extract metadata from all PDFs in a directory
+scholaris extract ./pdfs -o bibliography.xlsx
+scholaris extract ./pdfs -o refs.bib --format bibtex
+
+# Process PDF with auto-metadata extraction
+scholaris process paper.pdf --auto-metadata
+```
+
+### Bibliography Export
+
+Export your bibliography to multiple formats:
+
+| Format | Command | Use Case |
+|--------|---------|----------|
+| **Excel** | `scholaris export ./spdf refs.xlsx` | Review, share with collaborators |
+| **BibTeX** | `scholaris export ./spdf refs.bib --format bibtex` | LaTeX integration |
+| **CSV** | `scholaris export ./spdf refs.csv --format csv` | Spreadsheet import |
+| **JSON** | `scholaris export ./spdf refs.json --format json` | Programmatic access |
+
+### Python API
+
+```python
+from scholaris.auto_cite.metadata_extractor import (
+    HybridMetadataExtractor,
+    BibliographyExporter,
+    batch_extract_metadata,
+)
+
+# Extract metadata from PDFs
+results = batch_extract_metadata(
+    pdf_paths=["paper1.pdf", "paper2.pdf"],
+    gemini_api_key=API_KEY,
+)
+
+# Export to various formats
+BibliographyExporter.to_xlsx(results, "bibliography.xlsx")
+BibliographyExporter.to_bibtex(results, "references.bib")
+```
 
 <br/>
 
@@ -500,8 +561,17 @@ The fastest way to use scholaris is via the command line:
 # Auto-cite a document using pre-processed SPDF bibliography
 scholaris cite paper.md ./spdf -o paper_cited.md
 
-# Process a PDF to SPDF format
+# Process a PDF to SPDF format (with auto-metadata extraction)
+scholaris process paper.pdf --auto-metadata
 scholaris process paper.pdf --key smith2024 --authors "John Smith" --year 2024 --title "Paper Title"
+
+# Extract metadata from all PDFs in a directory
+scholaris extract ./pdfs -o bibliography.xlsx
+scholaris extract ./pdfs -o refs.bib --format bibtex
+
+# Export SPDF bibliography to various formats
+scholaris export ./spdf bibliography.xlsx
+scholaris export ./spdf refs.bib --format bibtex
 
 # Show info about SPDF collection
 scholaris info ./spdf
@@ -625,6 +695,8 @@ cp .claude/commands/*.md ~/.claude/commands/
 |---------|-------------|
 | `scholaris cite paper.md ./spdf` | Cite a document with verified page numbers |
 | `scholaris process paper.pdf` | Convert PDF to SPDF format |
+| `scholaris extract ./pdfs` | Extract metadata from PDFs (hybrid AI) |
+| `scholaris export ./spdf refs.bib` | Export bibliography to xlsx/csv/bibtex/json |
 | `scholaris info ./spdf` | Show SPDF collection statistics |
 | `scholaris install-skills` | Install Claude Code skills |
 
