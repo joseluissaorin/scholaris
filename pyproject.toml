@@ -38,6 +38,9 @@ dependencies = [
     "Pillow>=9.0.0",
 ]
 
+[project.scripts]
+scholaris = "scholaris.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",

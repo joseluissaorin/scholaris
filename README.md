@@ -492,37 +492,76 @@ GEMINI_API_KEY=your_key_here       # Required
 CROSSREF_EMAIL=your@email.com      # Optional (better page detection)
 ```
 
-### Minimal Example
+### CLI Usage (Recommended)
+
+The fastest way to use scholaris is via the command line:
+
+```bash
+# Auto-cite a document using pre-processed SPDF bibliography
+scholaris cite paper.md ./spdf -o paper_cited.md
+
+# Process a PDF to SPDF format
+scholaris process paper.pdf --key smith2024 --authors "John Smith" --year 2024 --title "Paper Title"
+
+# Show info about SPDF collection
+scholaris info ./spdf
+
+# Install Claude Code skills globally
+scholaris install-skills --global
+```
+
+### Key Pattern: CitationIndex with SPDF Files
+
+**This is the simplest and most efficient approach** for citing documents when you have pre-processed SPDF files:
 
 ```python
+from scholaris.auto_cite.citation_index import CitationIndex
+from scholaris.auto_cite.models import CitationStyle
+from pathlib import Path
 import os
-from dotenv import load_dotenv
+
+# Load all SPDF files from a directory (KEY: use add_directory())
+index = CitationIndex(gemini_api_key=os.getenv("GEMINI_API_KEY"))
+count = index.add_directory("./spdf")
+print(f"Loaded {count} sources ({index.total_chunks} chunks)")
+
+# Read and cite document
+document_text = Path("paper.md").read_text()
+result = index.cite_document(
+    document_text=document_text,
+    style=CitationStyle.APA7,
+    min_confidence=0.5,
+    include_bibliography=True,
+)
+
+# Save
+Path("paper_cited.md").write_text(result.modified_document)
+print(f"Inserted {result.metadata['total_citations']} citations")
+```
+
+**Why this works:**
+- `CitationIndex.add_directory()` loads pre-computed embeddings from SPDF files
+- No re-processing or re-embedding needed
+- Vector search happens in-memory using numpy
+- No external database (ChromaDB) required
+
+### Alternative: Auto-Process PDFs
+
+```python
 from scholaris.auto_cite import CitationIndex, CitationStyle
 
-load_dotenv()
-
-# Load bibliography
+# Load and auto-process any unprocessed PDFs
 index = CitationIndex.from_bibliography(
-    folder="./bib/",
+    folder="./bibliography/",
     gemini_api_key=os.getenv("GEMINI_API_KEY"),
-    auto_process=False  # Only load existing .spdf files
+    auto_process=True,   # Process new PDFs automatically
+    save_processed=True  # Save as .spdf for future use
 )
 
-# Read your document
-with open("paper.md") as f:
-    text = f.read()
-
-# Generate citations
 result = index.cite_document(
-    document_text=text,
+    document_text="Your research paper text here...",
     style=CitationStyle.APA7
 )
-
-# Save result
-with open("paper_cited.md", "w") as f:
-    f.write(result.modified_document)
-
-print(f"Inserted {result.metadata['total_citations']} citations")
 ```
 
 <br/>
@@ -572,12 +611,24 @@ Scholaris includes a Claude Code skill for seamless AI-assisted citation workflo
 ### Installation
 
 ```bash
-# Copy skill and commands to your Claude configuration
+# Option 1: CLI command (recommended)
+scholaris install-skills --global
+
+# Option 2: Manual copy
 cp -r .claude/skills/scholaris ~/.claude/skills/
 cp .claude/commands/*.md ~/.claude/commands/
 ```
 
-### Slash Commands
+### CLI Commands (No Claude Code Required)
+
+| Command | Description |
+|---------|-------------|
+| `scholaris cite paper.md ./spdf` | Cite a document with verified page numbers |
+| `scholaris process paper.pdf` | Convert PDF to SPDF format |
+| `scholaris info ./spdf` | Show SPDF collection statistics |
+| `scholaris install-skills` | Install Claude Code skills |
+
+### Slash Commands (Within Claude Code)
 
 | Command | Description |
 |---------|-------------|

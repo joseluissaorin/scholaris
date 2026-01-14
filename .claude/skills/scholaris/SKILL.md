@@ -5,7 +5,7 @@ allowed-tools:
   - Read
   - Write
   - Edit
-  - Bash(python:*, python3:*, pip:*, curl:*)
+  - Bash(python:*, python3:*, pip:*, curl:*, scholaris:*)
   - Grep
   - Glob
   - WebSearch
@@ -16,29 +16,76 @@ allowed-tools:
 
 Scholaris automatically inserts in-text citations with verified page numbers into academic documents. It uses Vision OCR, semantic RAG, and temporal logic to ensure accurate, grounded citations.
 
+## CLI Commands (Recommended)
+
+The fastest way to use scholaris is via CLI:
+
+```bash
+# Auto-cite a document using pre-processed SPDF bibliography
+scholaris cite paper.md ./spdf -o paper_cited.md
+
+# Process a PDF to SPDF format
+scholaris process paper.pdf --key smith2024 --authors "John Smith" --year 2024 --title "Paper Title"
+
+# Show info about SPDF collection
+scholaris info ./spdf
+
+# Install Claude Code skills globally
+scholaris install-skills --global
+```
+
+## Key Pattern: CitationIndex with Pre-Processed SPDF Files
+
+**This is the simplest and most efficient approach** for citing documents when you already have SPDF files:
+
+```python
+from scholaris.auto_cite.citation_index import CitationIndex
+from scholaris.auto_cite.models import CitationStyle
+
+# Load all SPDF files from a directory (KEY FIX: use add_directory())
+index = CitationIndex(gemini_api_key=GEMINI_API_KEY)
+count = index.add_directory("./spdf")
+print(f"Loaded {count} sources ({index.total_chunks} chunks)")
+
+# Read and cite document
+document_text = Path("paper.md").read_text()
+result = index.cite_document(
+    document_text=document_text,
+    style=CitationStyle.APA7,
+    min_confidence=0.5,
+    include_bibliography=True,
+)
+
+# Save
+Path("paper_cited.md").write_text(result.modified_document)
+print(f"Inserted {result.metadata['total_citations']} citations")
+```
+
+**Why this works:**
+- `CitationIndex.add_directory()` loads pre-computed embeddings from SPDF files
+- No re-processing or re-embedding needed
+- Vector search happens in-memory using numpy
+- No external database (ChromaDB) required
+
 ## Quick Start
 
 ### 1. Setup Environment
 
 ```python
 import os
-import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load API key
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Import scholaris
-from scholaris.auto_cite import CitationIndex, CitationStyle, ProcessedPDF
-from scholaris import Scholaris
+from scholaris.auto_cite import CitationIndex, CitationStyle
+from scholaris.auto_cite.processed_pdf import ProcessedPDF
 ```
 
 ### 2. Process a PDF to SPDF Format
 
 ```python
-# Process a single PDF with metadata
 processed = ProcessedPDF.from_pdf(
     pdf_path="paper.pdf",
     citation_key="smith2024",
@@ -51,10 +98,30 @@ processed = ProcessedPDF.from_pdf(
 processed.save("paper.spdf")
 ```
 
-### 3. Cite a Document
+### 3. Cite a Document (Two Approaches)
+
+#### Approach A: Pre-processed SPDF files (Recommended)
 
 ```python
 # Load bibliography from folder of .spdf files
+index = CitationIndex(gemini_api_key=GEMINI_API_KEY)
+index.add_directory("./spdf")
+
+# Generate citations
+result = index.cite_document(
+    document_text=Path("paper.md").read_text(),
+    style=CitationStyle.APA7,
+    min_confidence=0.5,
+    include_bibliography=True,
+)
+
+Path("paper_cited.md").write_text(result.modified_document)
+```
+
+#### Approach B: Auto-process PDFs on the fly
+
+```python
+# Load and auto-process any unprocessed PDFs
 index = CitationIndex.from_bibliography(
     folder="./bibliography/",
     gemini_api_key=GEMINI_API_KEY,
@@ -62,20 +129,10 @@ index = CitationIndex.from_bibliography(
     save_processed=True,
 )
 
-# Generate citations
 result = index.cite_document(
     document_text="Your academic paper text...",
     style=CitationStyle.APA7,
-    batch_size=3,
-    min_confidence=0.6,
-    include_bibliography=True,
 )
-
-# Save result
-with open("paper_cited.md", "w") as f:
-    f.write(result.modified_document)
-
-print(f"Inserted {result.metadata['total_citations']} citations")
 ```
 
 ## Core Concepts
@@ -100,26 +157,8 @@ print(f"Inserted {result.metadata['total_citations']} citations")
 
 ## Common Tasks
 
-### Search for Papers
-```python
-scholar = Scholaris(gemini_api_key=GEMINI_API_KEY)
-papers = scholar.search_papers(
-    topic="machine learning transformers",
-    max_papers=10,
-    min_year=2020,
-)
-```
-
-### Generate BibTeX
-```python
-bibtex_entries = scholar.generate_bibtex(
-    pdf_paths=["paper1.pdf", "paper2.pdf"],
-    method="auto",  # "auto", "pdf2bib", or "llm"
-)
-scholar.export_bibtex(bibtex_entries, "references.bib")
-```
-
 ### Batch Process PDFs
+
 ```python
 pdf_metadata = {
     "paper1.pdf": {"citation_key": "smith2024", "authors": ["Smith"], "year": 2024, "title": "Title 1"},
@@ -132,7 +171,59 @@ for pdf_file, meta in pdf_metadata.items():
         gemini_api_key=GEMINI_API_KEY,
         **meta
     )
-    processed.save(f"{meta['citation_key']}.spdf")
+    processed.save(f"./spdf/{meta['citation_key']}.spdf")
+```
+
+### Search for Papers
+
+```python
+from scholaris import Scholaris
+
+scholar = Scholaris(gemini_api_key=GEMINI_API_KEY)
+papers = scholar.search_papers(
+    topic="machine learning transformers",
+    max_papers=10,
+    min_year=2020,
+)
+```
+
+### Generate BibTeX
+
+```python
+bibtex_entries = scholar.generate_bibtex(
+    pdf_paths=["paper1.pdf", "paper2.pdf"],
+    method="auto",
+)
+scholar.export_bibtex(bibtex_entries, "references.bib")
+```
+
+## CLI Reference
+
+```bash
+# Cite a document
+scholaris cite <document> <spdf_dir> [options]
+  -o, --output        Output file path
+  --style            Citation style: apa, chicago (default: apa)
+  --confidence       Min confidence threshold (default: 0.5)
+  --max-citations    Max citations per claim (default: 2)
+  --no-bibliography  Don't append bibliography
+  -v, --verbose      Verbose output
+
+# Process PDF to SPDF
+scholaris process <pdf> [options]
+  -o, --output       Output SPDF file path
+  --output-dir       Output directory
+  --key             Citation key
+  --authors         Authors (comma-separated)
+  --year            Publication year
+  --title           Document title
+  --no-previews     Skip page preview images
+
+# Show SPDF collection info
+scholaris info <spdf_dir>
+
+# Install Claude Code skills
+scholaris install-skills [--global]
 ```
 
 ## Workflow Patterns
@@ -168,8 +259,9 @@ except Exception as e:
 
 ## Tips
 
-1. **Always provide metadata** - citation_key, authors, year, title improve matching
-2. **Use SPDF caching** - Process PDFs once, reuse the .spdf files
-3. **Set appropriate confidence** - 0.6 is a good default, lower for more citations
-4. **Check temporal logic** - Scholaris detects anachronistic citations automatically
-5. **Review framework rewrites** - When citing old theories for new concepts
+1. **Use CLI for quick tasks** - `scholaris cite` is faster than writing scripts
+2. **Pre-process SPDF files** - Process once, reuse forever
+3. **Use add_directory()** - The key pattern for loading pre-processed SPDFs
+4. **Set appropriate confidence** - 0.5 is a good default, lower for more citations
+5. **Check temporal logic** - Scholaris detects anachronistic citations automatically
+6. **Review framework rewrites** - When citing old theories for new concepts
