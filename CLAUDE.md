@@ -98,21 +98,45 @@ class CitationType(Enum):
     NOVEL_CONTRIBUTION = "novel_contribution"    # Author's original work
 ```
 
-## .spdf Format
+## .spdf Format (v2.0)
 
-Gzip-compressed SQLite database containing:
+Gzip-compressed SQLite database. See `spdf/SPEC.md` for full specification.
+
+### Core Tables (v1.x)
 
 | Table | Contents |
 |-------|----------|
-| `metadata` | Citation key, authors, year, title, language (ISO 639-1), hash |
+| `metadata` | Citation key, authors, year, title, language, hash, media_type |
 | `pages` | PDF page ↔ book page mapping, OCR text |
 | `chunks` | Text segments with page numbers, chunk_index |
-| `embeddings` | 768-dim vectors as binary blobs |
+| `embeddings` | **2048-dim** vectors as binary blobs (Qwen3-VL-2B) |
+| `chunks_fts` | FTS5 full-text search with BM25 ranking |
 | `previews` | Optional low-res page images (JPEG) |
+
+### v2.0 Tables (Multimodal)
+
+| Table | Contents |
+|-------|----------|
+| `media_blob` | Original file storage (PDF, video, audio, image) |
+| `media_segments` | Chunk-to-timestamp mapping for audio/video |
+| `video_metadata` | Duration, resolution, frame rate |
+| `audio_metadata` | Duration, sample rate |
+
+### Recommended Models (v2.0)
+
+| Purpose | Model | Dimensions |
+|---------|-------|------------|
+| Embeddings | Qwen3-VL-Embedding-2B | 2048 |
+| OCR | GLM-OCR-0.9B | - |
+| Transcription | Parakeet TDT 0.6B V3 | - |
 
 **Extensions:** `.spdf`, `.scholaris`, `.scpdf`
 
-**Language field (v1.2):** Each SPDF stores detected language code (en, es, fr, de) for cross-lingual citation matching.
+**HuggingFace Links:**
+- Embeddings: https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B
+- OCR: https://huggingface.co/zai-org/GLM-OCR
+- Transcription: https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+- Transcription ONNX: https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx
 
 ## Key Algorithms
 
